@@ -167,8 +167,14 @@ fastify.register(async (app) => {
     latestBusinessData = null;
     console.log('[media-stream] businessData consumed:', JSON.stringify(businessData, null, 2));
 
-    const sessionInstructions = buildPrompt(businessData);
-    console.log('[media-stream] first 500 chars of instructions:\n', sessionInstructions.slice(0, 500));
+    let sessionInstructions;
+    try {
+      sessionInstructions = buildPrompt(businessData);
+      console.log('[media-stream] first 500 chars of instructions:\n', sessionInstructions.slice(0, 500));
+    } catch (err) {
+      console.error('[media-stream] buildPrompt failed, falling back to default prompt:', err.message);
+      sessionInstructions = buildPrompt(null);
+    }
 
     let openAiWs = null;
     let streamSid = null;
@@ -213,7 +219,7 @@ fastify.register(async (app) => {
           }),
         );
         sessionReady = true;
-        fastify.log.info('[OpenAI] session.created → session.update sent (callSid: %s)', callSid ?? 'inbound');
+        fastify.log.info('[OpenAI] session.created → session.update sent');
         return;
       }
 
