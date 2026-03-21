@@ -184,10 +184,15 @@ export function buildPrompt(businessData) {
     return SYSTEM_PROMPT;
   }
 
-  const lines = ['BUSINESS DATA FOR THIS CALL:'];
+  const lines = [
+    '=== BUSINESS DATA FOR THIS CALL ===',
+    'CRITICAL: The following data is EXACT. Do NOT invent, guess, or substitute any names or details.',
+    'ONLY use names that appear explicitly below. If a field is not listed, do not make one up.',
+    '',
+  ];
 
   if (businessData.business_name)            lines.push(`Business Name: ${businessData.business_name}`);
-  if (businessData.owner_name)               lines.push(`Owner/Manager Name: ${businessData.owner_name}`);
+  if (businessData.owner_name)               lines.push(`Owner/Manager Name: ${businessData.owner_name} — USE THIS EXACT NAME. Do not use any other name.`);
   if (businessData.business_type)            lines.push(`Business Type: ${businessData.business_type}`);
   if (businessData.city)                     lines.push(`City: ${businessData.city}`);
   if (businessData.google_rating != null && businessData.review_count != null)
@@ -198,7 +203,12 @@ export function buildPrompt(businessData) {
   if (businessData.estimated_monthly_volume) lines.push(`Estimated Monthly Volume: ${businessData.estimated_monthly_volume}`);
 
   lines.push('');
-  lines.push('USE THIS DATA throughout the call. If owner_name is provided, open with "Hey, is [owner_name] around?" instead of asking for the owner generically.');
+  if (businessData.owner_name) {
+    lines.push(`OPENING INSTRUCTION: Your first question after they answer must be "Hey, is ${businessData.owner_name} around?" — use that exact name, no substitutions.`);
+  } else {
+    lines.push('OPENING INSTRUCTION: No owner name is available. Ask generically for the owner or manager.');
+  }
+  lines.push('=== END BUSINESS DATA ===');
   lines.push('');
 
   return lines.join('\n') + SYSTEM_PROMPT;
