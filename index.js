@@ -4,7 +4,7 @@ import fastifyFormBody from '@fastify/formbody';
 import fastifyWs from '@fastify/websocket';
 import WebSocket from 'ws';
 import twilio from 'twilio';
-import { SYSTEM_PROMPT } from './prompt.js';
+import { buildPrompt } from './prompt.js';
 
 const {
   OPENAI_API_KEY,
@@ -27,6 +27,10 @@ const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
 const callLogs = [];
 
+// Per-call business data keyed by callSid — populated before the call dials
+// and consumed when the media-stream WebSocket opens.
+const pendingBusinessData = new Map();
+
 // ── Server ──────────────────────────────────────────────────────────────────
 
 const fastify = Fastify({ logger: true });
@@ -35,11 +39,14 @@ await fastify.register(fastifyWs);
 
 // ── TwiML helper ─────────────────────────────────────────────────────────────
 
-function streamTwiML() {
+function streamTwiML(callSid) {
+  const url = callSid
+    ? `wss://${PUBLIC_URL}/media-stream?callSid=${callSid}`
+    : `wss://${PUBLIC_URL}/media-stream`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://${PUBLIC_URL}/media-stream"/>
+    <Stream url="${url}"/>
   </Connect>
 </Response>`;
 }
@@ -58,11 +65,12 @@ fastify.post('/incoming-call', async (req, reply) => {
 });
 
 fastify.post('/outbound-twiml', async (req, reply) => {
-  reply.type('text/xml').send(streamTwiML());
+  const callSid = req.body?.CallSid;
+  reply.type('text/xml').send(streamTwiML(callSid));
 });
 
 fastify.post('/make-call', async (req, reply) => {
-  const { to } = req.body ?? {};
+  const { to, business_data } = req.body ?? {};
   if (!to) return reply.status(400).send({ error: 'Missing "to" field' });
 
   const call = await twilioClient.calls.create({
@@ -73,10 +81,17 @@ fastify.post('/make-call', async (req, reply) => {
     statusCallbackMethod: 'POST',
   });
 
+  // Store business data so the media-stream handler can pick it up by callSid
+  if (business_data && Object.keys(business_data).length > 0) {
+    pendingBusinessData.set(call.sid, business_data);
+  }
+
   callLogs.push({
     callSid: call.sid,
     direction: 'outbound',
     to,
+    business_name: business_data?.business_name ?? null,
+    owner_name: business_data?.owner_name ?? null,
     timestamp: new Date().toISOString(),
     status: 'initiated',
   });
@@ -84,10 +99,61 @@ fastify.post('/make-call', async (req, reply) => {
   reply.send({ callSid: call.sid, status: call.status });
 });
 
+fastify.post('/batch-call', async (req, reply) => {
+  const { calls } = req.body ?? {};
+  if (!Array.isArray(calls) || calls.length === 0) {
+    return reply.status(400).send({ error: '"calls" must be a non-empty array' });
+  }
+
+  const results = [];
+
+  for (const item of calls) {
+    const { to, business_data } = item;
+    if (!to) {
+      results.push({ to, error: 'Missing "to" field' });
+      continue;
+    }
+
+    try {
+      const call = await twilioClient.calls.create({
+        url: `https://${PUBLIC_URL}/outbound-twiml`,
+        to,
+        from: TWILIO_PHONE_NUMBER,
+        statusCallback: `https://${PUBLIC_URL}/call-status`,
+        statusCallbackMethod: 'POST',
+      });
+
+      if (business_data && Object.keys(business_data).length > 0) {
+        pendingBusinessData.set(call.sid, business_data);
+      }
+
+      callLogs.push({
+        callSid: call.sid,
+        direction: 'outbound',
+        to,
+        business_name: business_data?.business_name ?? null,
+        owner_name: business_data?.owner_name ?? null,
+        timestamp: new Date().toISOString(),
+        status: 'initiated',
+      });
+
+      results.push({ to, callSid: call.sid, status: call.status });
+    } catch (err) {
+      results.push({ to, error: err.message });
+    }
+  }
+
+  reply.send({ results });
+});
+
 fastify.post('/call-status', async (req, reply) => {
   const { CallSid, CallStatus } = req.body ?? {};
   const entry = callLogs.find((l) => l.callSid === CallSid);
   if (entry) entry.status = CallStatus;
+  // Clean up business data for completed/failed calls
+  if (['completed', 'failed', 'busy', 'no-answer', 'canceled'].includes(CallStatus)) {
+    pendingBusinessData.delete(CallSid);
+  }
   reply.send({ ok: true });
 });
 
@@ -98,12 +164,17 @@ fastify.get('/logs', async (_req, reply) => {
 // ── WebSocket media-stream handler ───────────────────────────────────────────
 
 fastify.register(async (app) => {
-  app.get('/media-stream', { websocket: true }, (connection) => {
+  app.get('/media-stream', { websocket: true }, (connection, req) => {
     const twilioWs = connection.socket;
+
+    // Extract callSid passed as query param from the TwiML Stream URL
+    const callSid = new URL(req.url, 'http://localhost').searchParams.get('callSid');
+    const businessData = callSid ? (pendingBusinessData.get(callSid) ?? null) : null;
+    const sessionInstructions = buildPrompt(businessData);
 
     let openAiWs = null;
     let streamSid = null;
-    let sessionReady = false; // true after session.created + session.update sent
+    let sessionReady = false;
 
     // ── OpenAI Realtime connection ──────────────────────────────────────────
 
@@ -137,14 +208,14 @@ fastify.register(async (app) => {
               input_audio_format: 'g711_ulaw',
               output_audio_format: 'g711_ulaw',
               voice: 'cedar',
-              instructions: SYSTEM_PROMPT,
+              instructions: sessionInstructions,
               modalities: ['text', 'audio'],
               temperature: 0.8,
             },
           }),
         );
         sessionReady = true;
-        fastify.log.info('[OpenAI] session.created → session.update sent');
+        fastify.log.info('[OpenAI] session.created → session.update sent (callSid: %s)', callSid ?? 'inbound');
         return;
       }
 
@@ -160,7 +231,7 @@ fastify.register(async (app) => {
         return;
       }
 
-      // Optional: send a mark when the AI finishes speaking
+      // Send a mark when the AI finishes speaking
       if (event.type === 'response.audio.done' && streamSid) {
         twilioWs.send(
           JSON.stringify({ event: 'mark', streamSid, mark: { name: 'response_done' } }),
@@ -202,8 +273,7 @@ fastify.register(async (app) => {
           break;
 
         case 'media': {
-          // Discard audio that arrives before the OpenAI session is ready;
-          // do NOT buffer — just drop so we never replay stale chunks.
+          // Discard audio before the OpenAI session is ready — do NOT buffer.
           if (!sessionReady) break;
           if (openAiWs.readyState === WebSocket.OPEN) {
             openAiWs.send(
