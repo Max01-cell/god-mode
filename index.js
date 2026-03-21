@@ -235,6 +235,7 @@ fastify.register(async (app) => {
           instructions,
           modalities: ['text', 'audio'],
           temperature: 0.8,
+          input_audio_transcription: null, // disable transcription to save tokens
           tools: [
             {
               type: 'function',
