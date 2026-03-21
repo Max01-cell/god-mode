@@ -8,7 +8,7 @@ import { buildPrompt } from './prompt.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import mulaw from 'alawmulaw';
+import alawmulaw from 'alawmulaw';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -21,12 +21,12 @@ function mixBackground(base64Chunk, bgCursor) {
   const len = signal.length;
 
   // Decode both buffers to 16-bit PCM
-  const signalPcm = mulaw.decode(signal);
+  const signalPcm = alawmulaw.mulaw.decode(signal);
   const bgSlice = Buffer.allocUnsafe(len);
   for (let i = 0; i < len; i++) {
     bgSlice[i] = bgRaw[(bgCursor + i) % bgRaw.length];
   }
-  const bgPcm = mulaw.decode(bgSlice);
+  const bgPcm = alawmulaw.mulaw.decode(bgSlice);
 
   // Mix: full signal + attenuated background, clamp to int16 range
   const mixed = new Int16Array(len);
@@ -36,7 +36,7 @@ function mixBackground(base64Chunk, bgCursor) {
     ));
   }
 
-  const mixedBuf = mulaw.encode(mixed);
+  const mixedBuf = alawmulaw.mulaw.encode(mixed);
   return {
     payload: Buffer.from(mixedBuf).toString('base64'),
     nextCursor: (bgCursor + len) % bgRaw.length,
