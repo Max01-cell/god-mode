@@ -73,6 +73,8 @@ fastify.post('/make-call', async (req, reply) => {
   const { to, business_data } = req.body ?? {};
   if (!to) return reply.status(400).send({ error: 'Missing "to" field' });
 
+  console.log('[make-call] business_data received:', JSON.stringify(business_data, null, 2));
+
   const call = await twilioClient.calls.create({
     url: `https://${PUBLIC_URL}/outbound-twiml`,
     to,
@@ -81,9 +83,14 @@ fastify.post('/make-call', async (req, reply) => {
     statusCallbackMethod: 'POST',
   });
 
+  console.log('[make-call] callSid assigned:', call.sid);
+
   // Store business data so the media-stream handler can pick it up by callSid
   if (business_data && Object.keys(business_data).length > 0) {
     pendingBusinessData.set(call.sid, business_data);
+    console.log('[make-call] business_data stored in pendingBusinessData for callSid:', call.sid);
+  } else {
+    console.log('[make-call] no business_data to store');
   }
 
   callLogs.push({
@@ -169,8 +176,14 @@ fastify.register(async (app) => {
 
     // Extract callSid passed as query param from the TwiML Stream URL
     const callSid = new URL(req.url, 'http://localhost').searchParams.get('callSid');
+    console.log('[media-stream] WebSocket opened, callSid from query:', callSid);
+    console.log('[media-stream] pendingBusinessData keys:', [...pendingBusinessData.keys()]);
+
     const businessData = callSid ? (pendingBusinessData.get(callSid) ?? null) : null;
+    console.log('[media-stream] businessData looked up:', JSON.stringify(businessData, null, 2));
+
     const sessionInstructions = buildPrompt(businessData);
+    console.log('[media-stream] first 500 chars of instructions being sent to OpenAI:\n', sessionInstructions.slice(0, 500));
 
     let openAiWs = null;
     let streamSid = null;
