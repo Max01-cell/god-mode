@@ -233,7 +233,7 @@ fastify.register(async (app) => {
           },
           input_audio_format: 'g711_ulaw',
           output_audio_format: 'g711_ulaw',
-          voice: 'cedar',
+          voice: 'fable',
           instructions,
           modalities: ['text', 'audio'],
           temperature: 0.8,
