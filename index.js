@@ -195,6 +195,7 @@ fastify.register(async (app) => {
     let twilioStarted    = false; // true after "start" event received from Twilio
     let agentSpeaking    = false;
     let micEnabled       = false;
+    let speechDetected   = false; // set true on first VAD speech_started event
     let bgCursor         = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
 
     // Called once both OpenAI session.created AND Twilio start have fired.
@@ -255,6 +256,14 @@ fastify.register(async (app) => {
       setTimeout(() => {
         micEnabled = true;
         fastify.log.info('[session] mic enabled — call ready');
+
+        // If nobody has spoken after 5 seconds, agent says hello first
+        setTimeout(() => {
+          if (!speechDetected && !agentSpeaking && openAiWs?.readyState === WebSocket.OPEN) {
+            fastify.log.info('[session] no speech after 5s — triggering greeting');
+            openAiWs.send(JSON.stringify({ type: 'response.create' }));
+          }
+        }, 5000);
       }, 2000);
     }
 
@@ -316,6 +325,11 @@ fastify.register(async (app) => {
         twilioWs.send(JSON.stringify({
           event: 'mark', streamSid, mark: { name: 'response_done' },
         }));
+        return;
+      }
+
+      if (event.type === 'input_audio_buffer.speech_started') {
+        speechDetected = true;
         return;
       }
 
