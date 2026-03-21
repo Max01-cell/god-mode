@@ -227,7 +227,7 @@ fastify.register(async (app) => {
         session: {
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.6,
+            threshold: 0.65,
             prefix_padding_ms: 300,
             silence_duration_ms: 700,
           },
@@ -331,7 +331,7 @@ fastify.register(async (app) => {
 
       if (event.type === 'input_audio_buffer.speech_started') {
         const msSinceAgentSpoke = Date.now() - lastAgentSpokeAt;
-        if (agentSpeaking || msSinceAgentSpoke < 1200) {
+        if (agentSpeaking || msSinceAgentSpoke < 2000) {
           // Too soon after agent spoke — likely echo or audio tail, not real human speech
           fastify.log.info('[VAD] speech_started suppressed (%dms after agent, agentSpeaking=%s)', msSinceAgentSpoke, agentSpeaking);
           if (openAiWs?.readyState === WebSocket.OPEN) {
