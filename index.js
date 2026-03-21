@@ -21,7 +21,7 @@ if (!OPENAI_API_KEY || !TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_PHON
 }
 
 const OPENAI_REALTIME_URL =
-  'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview';
+  'wss://api.openai.com/v1/realtime?model=gpt-realtime';
 
 const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
