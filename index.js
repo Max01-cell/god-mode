@@ -278,14 +278,8 @@ fastify.register(async (app) => {
         return;
       }
 
-      // Agent finished speaking — brief cooldown, then re-enable mic and flush echo
+      // Agent finished generating — send a mark so Twilio tells us when it finishes PLAYING
       if (event.type === 'response.audio.done') {
-        setTimeout(() => {
-          agentSpeaking = false;
-          if (openAiWs?.readyState === WebSocket.OPEN) {
-            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
-          }
-        }, 1000); // 1s cooldown lets Twilio finish playing the last audio chunk before mic re-opens
         if (streamSid) {
           twilioWs.send(
             JSON.stringify({ event: 'mark', streamSid, mark: { name: 'response_done' } }),
@@ -320,6 +314,19 @@ fastify.register(async (app) => {
       switch (msg.event) {
         case 'connected':
           fastify.log.info('[Twilio] media stream connected');
+          break;
+
+        case 'mark':
+          // Twilio echoes our mark back when it actually plays it — safe to re-enable mic now
+          if (msg.mark?.name === 'response_done') {
+            setTimeout(() => {
+              agentSpeaking = false;
+              if (openAiWs?.readyState === WebSocket.OPEN) {
+                openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+              }
+              fastify.log.info('[Twilio] mark received — mic re-enabled');
+            }, 300); // small buffer after Twilio confirms playback complete
+          }
           break;
 
         case 'start':
