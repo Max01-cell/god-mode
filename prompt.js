@@ -176,28 +176,30 @@ Wait patiently up to 2 minutes on hold. If transferred, re-introduce yourself us
 - If you can't understand: "Sorry, didn't catch that — one more time?"`;
 
 /**
- * Build a session-specific system prompt by injecting business data.
+ * Build a session-specific system prompt by prepending business data to the top.
  * Only includes fields that are actually present — never fabricates.
  */
 export function buildPrompt(businessData) {
   if (!businessData || Object.keys(businessData).length === 0) {
-    return SYSTEM_PROMPT.replace('{{business_data}}', 'No pre-research data available for this call.');
+    return SYSTEM_PROMPT;
   }
 
-  const lines = ['=== BUSINESS RESEARCH FOR THIS CALL ==='];
+  const lines = ['BUSINESS DATA FOR THIS CALL:'];
 
-  if (businessData.business_name) lines.push(`Business name: ${businessData.business_name}`);
-  if (businessData.owner_name)    lines.push(`Owner/manager name: ${businessData.owner_name}`);
-  if (businessData.business_type) lines.push(`Business type: ${businessData.business_type}`);
-  if (businessData.city)          lines.push(`City: ${businessData.city}`);
-  if (businessData.google_rating) lines.push(`Google rating: ${businessData.google_rating} stars`);
-  if (businessData.review_count)  lines.push(`Review count: ${businessData.review_count}`);
-  if (businessData.review_highlights) lines.push(`Review highlights: ${businessData.review_highlights}`);
-  if (businessData.likely_processor)  lines.push(`Likely processor: ${businessData.likely_processor}`);
-  if (businessData.estimated_monthly_volume) lines.push(`Estimated monthly volume: ${businessData.estimated_monthly_volume}`);
+  if (businessData.business_name)            lines.push(`Business Name: ${businessData.business_name}`);
+  if (businessData.owner_name)               lines.push(`Owner/Manager Name: ${businessData.owner_name}`);
+  if (businessData.business_type)            lines.push(`Business Type: ${businessData.business_type}`);
+  if (businessData.city)                     lines.push(`City: ${businessData.city}`);
+  if (businessData.google_rating != null && businessData.review_count != null)
+                                             lines.push(`Google Rating: ${businessData.google_rating} stars (${businessData.review_count} reviews)`);
+  else if (businessData.google_rating != null) lines.push(`Google Rating: ${businessData.google_rating} stars`);
+  if (businessData.review_highlights)        lines.push(`Review Highlights: ${businessData.review_highlights}`);
+  if (businessData.likely_processor)         lines.push(`Likely Processor: ${businessData.likely_processor}`);
+  if (businessData.estimated_monthly_volume) lines.push(`Estimated Monthly Volume: ${businessData.estimated_monthly_volume}`);
 
-  lines.push('=== END RESEARCH ===');
-  lines.push('Use the above naturally — never say you researched them.');
+  lines.push('');
+  lines.push('USE THIS DATA throughout the call. If owner_name is provided, open with "Hey, is [owner_name] around?" instead of asking for the owner generically.');
+  lines.push('');
 
-  return SYSTEM_PROMPT.replace('{{business_data}}', lines.join('\n'));
+  return lines.join('\n') + SYSTEM_PROMPT;
 }
