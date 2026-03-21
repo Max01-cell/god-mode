@@ -215,11 +215,19 @@ fastify.register(async (app) => {
               instructions: sessionInstructions,
               modalities: ['text', 'audio'],
               temperature: 0.8,
+              max_response_output_tokens: 150,
             },
           }),
         );
         sessionReady = true;
         fastify.log.info('[OpenAI] session.created → session.update sent');
+        return;
+      }
+
+      // Log token usage after each response
+      if (event.type === 'response.done' && event.response?.usage) {
+        const { input_tokens, output_tokens, total_tokens } = event.response.usage;
+        console.log(`[tokens] input=${input_tokens} output=${output_tokens} total=${total_tokens}`);
         return;
       }
 
