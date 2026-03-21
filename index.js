@@ -196,6 +196,7 @@ fastify.register(async (app) => {
     let agentSpeaking    = false;
     let micEnabled       = false;
     let speechDetected   = false; // set true on first VAD speech_started event
+    let lastAgentSpokeAt = 0;    // timestamp when mic was last re-enabled after agent speech
     let bgCursor         = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
 
     // Called once both OpenAI session.created AND Twilio start have fired.
@@ -329,6 +330,15 @@ fastify.register(async (app) => {
       }
 
       if (event.type === 'input_audio_buffer.speech_started') {
+        const msSinceAgentSpoke = Date.now() - lastAgentSpokeAt;
+        if (agentSpeaking || msSinceAgentSpoke < 1200) {
+          // Too soon after agent spoke — likely echo or audio tail, not real human speech
+          fastify.log.info('[VAD] speech_started suppressed (%dms after agent, agentSpeaking=%s)', msSinceAgentSpoke, agentSpeaking);
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+          }
+          return;
+        }
         speechDetected = true;
         return;
       }
@@ -364,6 +374,7 @@ fastify.register(async (app) => {
           if (msg.mark?.name === 'response_done') {
             setTimeout(() => {
               agentSpeaking = false;
+              lastAgentSpokeAt = Date.now();
               if (openAiWs?.readyState === WebSocket.OPEN) {
                 openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
               }
