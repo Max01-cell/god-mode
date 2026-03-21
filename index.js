@@ -181,6 +181,7 @@ fastify.register(async (app) => {
     let callSid = null;
     let sessionReady = false;
     let agentSpeaking = false; // true while Alex is outputting audio — block mic input to prevent echo
+    let micEnabled = false;    // stays false for first 2s to let the call settle before VAD starts
 
     // ── OpenAI Realtime connection ──────────────────────────────────────────
 
@@ -235,6 +236,12 @@ fastify.register(async (app) => {
           }),
         );
         sessionReady = true;
+        // Clear any audio that arrived during connection setup, then open the mic after a delay
+        openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+        setTimeout(() => {
+          micEnabled = true;
+          fastify.log.info('[OpenAI] mic enabled — call ready');
+        }, 2000);
         fastify.log.info('[OpenAI] session.created → session.update sent');
         return;
       }
@@ -278,7 +285,7 @@ fastify.register(async (app) => {
           if (openAiWs?.readyState === WebSocket.OPEN) {
             openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
           }
-        }, 500); // 500ms cooldown lets Twilio finish playing the last audio chunk
+        }, 1000); // 1s cooldown lets Twilio finish playing the last audio chunk before mic re-opens
         if (streamSid) {
           twilioWs.send(
             JSON.stringify({ event: 'mark', streamSid, mark: { name: 'response_done' } }),
@@ -322,8 +329,8 @@ fastify.register(async (app) => {
           break;
 
         case 'media': {
-          // Discard audio if session not ready or agent is currently speaking (prevents echo)
-          if (!sessionReady || agentSpeaking) break;
+          // Discard audio if session not ready, mic not yet enabled, or agent is speaking (prevents echo)
+          if (!sessionReady || !micEnabled || agentSpeaking) break;
           if (openAiWs.readyState === WebSocket.OPEN) {
             openAiWs.send(
               JSON.stringify({
