@@ -14,7 +14,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Load background ambiance (raw mulaw 8kHz mono) and keep a loop cursor per call
 const bgRaw = readFileSync(join(__dirname, 'background.raw'));
-const BACKGROUND_VOLUME = 0.04; // 4% — barely audible, just adds room tone
+const BACKGROUND_VOLUME = 0.02; // 2% — just enough room tone, less likely to echo back through mic
 
 function mixBackground(base64Chunk, bgCursor) {
   const signal = Buffer.from(base64Chunk, 'base64');
