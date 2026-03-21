@@ -24,48 +24,38 @@ const OPENAI_REALTIME_URL =
   'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview';
 
 const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-
 const callLogs = [];
 
-// Most recent business data — set by /make-call, consumed by the next WebSocket connection.
-let latestBusinessData = null;
+// Business data keyed by callSid — populated in /make-call, consumed on Twilio "start" event
+const businessDataMap = new Map();
 
-// ── Server ──────────────────────────────────────────────────────────────────
+// ── Server ───────────────────────────────────────────────────────────────────
 
 const fastify = Fastify({ logger: true });
 await fastify.register(fastifyFormBody);
 await fastify.register(fastifyWs);
 
-// ── TwiML helper ─────────────────────────────────────────────────────────────
+// ── TwiML helper ──────────────────────────────────────────────────────────────
 
-function streamTwiML(callSid) {
-  const url = callSid
-    ? `wss://${PUBLIC_URL}/media-stream?callSid=${callSid}`
-    : `wss://${PUBLIC_URL}/media-stream`;
+function streamTwiML() {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="${url}"/>
+    <Stream url="wss://${PUBLIC_URL}/media-stream"/>
   </Connect>
 </Response>`;
 }
 
-// ── HTTP endpoints ───────────────────────────────────────────────────────────
+// ── HTTP endpoints ────────────────────────────────────────────────────────────
 
 fastify.post('/incoming-call', async (req, reply) => {
   const callSid = req.body?.CallSid ?? 'unknown';
-  callLogs.push({
-    callSid,
-    direction: 'inbound',
-    timestamp: new Date().toISOString(),
-    status: 'started',
-  });
+  callLogs.push({ callSid, direction: 'inbound', timestamp: new Date().toISOString(), status: 'started' });
   reply.type('text/xml').send(streamTwiML());
 });
 
 fastify.post('/outbound-twiml', async (req, reply) => {
-  const callSid = req.body?.CallSid;
-  reply.type('text/xml').send(streamTwiML(callSid));
+  reply.type('text/xml').send(streamTwiML());
 });
 
 fastify.post('/make-call', async (req, reply) => {
@@ -82,10 +72,12 @@ fastify.post('/make-call', async (req, reply) => {
     statusCallbackMethod: 'POST',
   });
 
-  console.log('[make-call] callSid assigned:', call.sid);
+  console.log('[make-call] callSid:', call.sid);
 
-  latestBusinessData = (business_data && Object.keys(business_data).length > 0) ? business_data : null;
-  console.log('[make-call] latestBusinessData set:', JSON.stringify(latestBusinessData, null, 2));
+  if (business_data && Object.keys(business_data).length > 0) {
+    businessDataMap.set(call.sid, business_data);
+    console.log('[make-call] stored business_data in map for callSid:', call.sid);
+  }
 
   callLogs.push({
     callSid: call.sid,
@@ -107,13 +99,9 @@ fastify.post('/batch-call', async (req, reply) => {
   }
 
   const results = [];
-
   for (const item of calls) {
     const { to, business_data } = item;
-    if (!to) {
-      results.push({ to, error: 'Missing "to" field' });
-      continue;
-    }
+    if (!to) { results.push({ to, error: 'Missing "to" field' }); continue; }
 
     try {
       const call = await twilioClient.calls.create({
@@ -124,16 +112,15 @@ fastify.post('/batch-call', async (req, reply) => {
         statusCallbackMethod: 'POST',
       });
 
-      latestBusinessData = (business_data && Object.keys(business_data).length > 0) ? business_data : null;
+      if (business_data && Object.keys(business_data).length > 0) {
+        businessDataMap.set(call.sid, business_data);
+      }
 
       callLogs.push({
-        callSid: call.sid,
-        direction: 'outbound',
-        to,
+        callSid: call.sid, direction: 'outbound', to,
         business_name: business_data?.business_name ?? null,
         owner_name: business_data?.owner_name ?? null,
-        timestamp: new Date().toISOString(),
-        status: 'initiated',
+        timestamp: new Date().toISOString(), status: 'initiated',
       });
 
       results.push({ to, callSid: call.sid, status: call.status });
@@ -149,41 +136,90 @@ fastify.post('/call-status', async (req, reply) => {
   const { CallSid, CallStatus } = req.body ?? {};
   const entry = callLogs.find((l) => l.callSid === CallSid);
   if (entry) entry.status = CallStatus;
+  if (['completed', 'failed', 'busy', 'no-answer', 'canceled'].includes(CallStatus)) {
+    businessDataMap.delete(CallSid);
+  }
   reply.send({ ok: true });
 });
 
-fastify.get('/logs', async (_req, reply) => {
-  reply.send(callLogs);
-});
+fastify.get('/logs', async (_req, reply) => reply.send(callLogs));
 
-// ── WebSocket media-stream handler ───────────────────────────────────────────
+// ── WebSocket media-stream handler ────────────────────────────────────────────
 
 fastify.register(async (app) => {
-  app.get('/media-stream', { websocket: true }, (connection, req) => {
+  app.get('/media-stream', { websocket: true }, (connection) => {
     const twilioWs = connection.socket;
 
-    // Consume the latest business data and immediately clear it
-    const businessData = latestBusinessData;
-    latestBusinessData = null;
-    console.log('[media-stream] businessData consumed:', JSON.stringify(businessData, null, 2));
+    let openAiWs         = null;
+    let streamSid        = null;
+    let callSid          = null;
+    let sessionReady     = false; // true after session.update is sent to OpenAI
+    let openAiCreated    = false; // true after session.created received from OpenAI
+    let twilioStarted    = false; // true after "start" event received from Twilio
+    let agentSpeaking    = false;
+    let micEnabled       = false;
 
-    let sessionInstructions;
-    try {
-      sessionInstructions = buildPrompt(businessData);
-      console.log('[media-stream] first 500 chars of instructions:\n', sessionInstructions.slice(0, 500));
-    } catch (err) {
-      console.error('[media-stream] buildPrompt failed, falling back to default prompt:', err.message);
-      sessionInstructions = buildPrompt(null);
+    // Called once both OpenAI session.created AND Twilio start have fired.
+    // Only then do we have the callSid to look up business data.
+    function maybeSendSessionUpdate() {
+      if (!openAiCreated || !twilioStarted) return;
+
+      const businessData = businessDataMap.get(callSid) ?? null;
+      if (businessData) {
+        businessDataMap.delete(callSid);
+        console.log('[session] found business_data for callSid', callSid, ':', JSON.stringify(businessData, null, 2));
+      } else {
+        console.log('[session] no business_data found for callSid', callSid);
+      }
+
+      let instructions;
+      try {
+        instructions = buildPrompt(businessData);
+      } catch (err) {
+        console.error('[session] buildPrompt error, using default:', err.message);
+        instructions = buildPrompt(null);
+      }
+
+      console.log('[session] sending session.update — first 500 chars:\n', instructions.slice(0, 500));
+
+      openAiWs.send(JSON.stringify({
+        type: 'session.update',
+        session: {
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.7,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 1500,
+          },
+          input_audio_format: 'g711_ulaw',
+          output_audio_format: 'g711_ulaw',
+          voice: 'cedar',
+          instructions,
+          modalities: ['text', 'audio'],
+          temperature: 0.8,
+          tools: [
+            {
+              type: 'function',
+              name: 'hang_up_call',
+              description: 'End the phone call. Call this when the conversation is complete — after a goodbye, after the prospect says not interested, or after getting their email.',
+              parameters: { type: 'object', properties: {}, required: [] },
+            },
+          ],
+          tool_choice: 'auto',
+        },
+      }));
+
+      sessionReady = true;
+
+      // Clear any audio buffered before session was ready, then open mic after 2s
+      openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+      setTimeout(() => {
+        micEnabled = true;
+        fastify.log.info('[session] mic enabled — call ready');
+      }, 2000);
     }
 
-    let openAiWs = null;
-    let streamSid = null;
-    let callSid = null;
-    let sessionReady = false;
-    let agentSpeaking = false; // true while Alex is outputting audio — block mic input to prevent echo
-    let micEnabled = false;    // stays false for first 2s to let the call settle before VAD starts
-
-    // ── OpenAI Realtime connection ──────────────────────────────────────────
+    // ── OpenAI Realtime connection ───────────────────────────────────────────
 
     openAiWs = new WebSocket(OPENAI_REALTIME_URL, {
       headers: {
@@ -193,180 +229,117 @@ fastify.register(async (app) => {
     });
 
     openAiWs.on('open', () => {
-      fastify.log.info('[OpenAI] WebSocket connected — waiting for session.created');
-      // Do NOT send session.update here; wait for session.created event.
+      fastify.log.info('[OpenAI] connected — waiting for session.created and Twilio start');
     });
 
     openAiWs.on('message', (raw) => {
       let event;
-      try {
-        event = JSON.parse(raw);
-      } catch {
-        return;
-      }
+      try { event = JSON.parse(raw); } catch { return; }
 
-      // Configure session only after server confirms it was created
       if (event.type === 'session.created') {
-        openAiWs.send(
-          JSON.stringify({
-            type: 'session.update',
-            session: {
-              turn_detection: {
-                type: 'server_vad',
-                threshold: 0.7,            // higher = less sensitive, fewer false triggers
-                prefix_padding_ms: 300,
-                silence_duration_ms: 1500, // wait 1.5s of silence before ending a turn
-              },
-              input_audio_format: 'g711_ulaw',
-              output_audio_format: 'g711_ulaw',
-              voice: 'cedar',
-              instructions: sessionInstructions,
-              modalities: ['text', 'audio'],
-              temperature: 0.8,
-              tools: [
-                {
-                  type: 'function',
-                  name: 'hang_up_call',
-                  description: 'End the phone call. Call this when the conversation is complete — after a goodbye, after the prospect says not interested, or after getting their email.',
-                  parameters: { type: 'object', properties: {}, required: [] },
-                },
-              ],
-              tool_choice: 'auto',
-            },
-          }),
-        );
-        sessionReady = true;
-        // Clear any audio that arrived during connection setup, then open the mic after a delay
-        openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
-        setTimeout(() => {
-          micEnabled = true;
-          fastify.log.info('[OpenAI] mic enabled — call ready');
-        }, 2000);
-        fastify.log.info('[OpenAI] session.created → session.update sent');
+        fastify.log.info('[OpenAI] session.created received');
+        openAiCreated = true;
+        maybeSendSessionUpdate();
         return;
       }
 
-      // Handle hang_up_call tool invocation
-      if (event.type === 'response.output_item.added' && event.item?.type === 'function_call' && event.item?.name === 'hang_up_call') {
+      if (event.type === 'response.output_item.added' &&
+          event.item?.type === 'function_call' &&
+          event.item?.name === 'hang_up_call') {
         fastify.log.info('[OpenAI] hang_up_call triggered — ending call');
         if (callSid) {
           twilioClient.calls(callSid).update({ status: 'completed' }).catch((err) => {
-            fastify.log.error('[Twilio] failed to hang up call: %s', err.message);
+            fastify.log.error('[Twilio] failed to hang up: %s', err.message);
           });
         }
         if (openAiWs?.readyState === WebSocket.OPEN) openAiWs.close();
         return;
       }
 
-      // Log token usage after each response
       if (event.type === 'response.done' && event.response?.usage) {
         const { input_tokens, output_tokens, total_tokens } = event.response.usage;
         console.log(`[tokens] input=${input_tokens} output=${output_tokens} total=${total_tokens}`);
         return;
       }
 
-      // Forward audio deltas back to Twilio
       if (event.type === 'response.audio.delta' && event.delta && streamSid) {
         agentSpeaking = true;
-        twilioWs.send(
-          JSON.stringify({
-            event: 'media',
-            streamSid,
-            media: { payload: event.delta },
-          }),
-        );
+        twilioWs.send(JSON.stringify({
+          event: 'media', streamSid, media: { payload: event.delta },
+        }));
         return;
       }
 
-      // Agent finished generating — send a mark so Twilio tells us when it finishes PLAYING
-      if (event.type === 'response.audio.done') {
-        if (streamSid) {
-          twilioWs.send(
-            JSON.stringify({ event: 'mark', streamSid, mark: { name: 'response_done' } }),
-          );
-        }
+      // Agent done generating — send mark; mic re-opens when Twilio echoes it back
+      if (event.type === 'response.audio.done' && streamSid) {
+        twilioWs.send(JSON.stringify({
+          event: 'mark', streamSid, mark: { name: 'response_done' },
+        }));
         return;
       }
 
       if (event.type === 'error') {
-        fastify.log.error('[OpenAI] error event: %o', event.error);
+        fastify.log.error('[OpenAI] error: %o', event.error);
       }
     });
 
-    openAiWs.on('error', (err) => {
-      fastify.log.error('[OpenAI] WebSocket error: %s', err.message);
-    });
+    openAiWs.on('error', (err) => fastify.log.error('[OpenAI] WS error: %s', err.message));
+    openAiWs.on('close', (code) => fastify.log.info('[OpenAI] WS closed (code %d)', code));
 
-    openAiWs.on('close', (code) => {
-      fastify.log.info('[OpenAI] WebSocket closed (code %d)', code);
-    });
-
-    // ── Twilio Media Stream messages ────────────────────────────────────────
+    // ── Twilio Media Stream messages ─────────────────────────────────────────
 
     twilioWs.on('message', (raw) => {
       let msg;
-      try {
-        msg = JSON.parse(raw);
-      } catch {
-        return;
-      }
+      try { msg = JSON.parse(raw); } catch { return; }
 
       switch (msg.event) {
         case 'connected':
           fastify.log.info('[Twilio] media stream connected');
           break;
 
+        case 'start':
+          streamSid = msg.start.streamSid;
+          callSid   = msg.start.callSid;
+          console.log('[Twilio] start — streamSid:', streamSid, 'callSid:', callSid);
+          twilioStarted = true;
+          maybeSendSessionUpdate();
+          break;
+
         case 'mark':
-          // Twilio echoes our mark back when it actually plays it — safe to re-enable mic now
           if (msg.mark?.name === 'response_done') {
             setTimeout(() => {
               agentSpeaking = false;
               if (openAiWs?.readyState === WebSocket.OPEN) {
                 openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
               }
-              fastify.log.info('[Twilio] mark received — mic re-enabled');
-            }, 300); // small buffer after Twilio confirms playback complete
+              fastify.log.info('[Twilio] mark ack — mic re-enabled');
+            }, 300);
           }
           break;
 
-        case 'start':
-          streamSid = msg.start.streamSid;
-          callSid = msg.start.callSid;
-          fastify.log.info('[Twilio] stream started — streamSid: %s callSid: %s', streamSid, callSid);
-          break;
-
-        case 'media': {
-          // Discard audio if session not ready, mic not yet enabled, or agent is speaking (prevents echo)
+        case 'media':
           if (!sessionReady || !micEnabled || agentSpeaking) break;
           if (openAiWs.readyState === WebSocket.OPEN) {
-            openAiWs.send(
-              JSON.stringify({
-                type: 'input_audio_buffer.append',
-                audio: msg.media.payload,
-              }),
-            );
+            openAiWs.send(JSON.stringify({
+              type: 'input_audio_buffer.append',
+              audio: msg.media.payload,
+            }));
           }
           break;
-        }
 
         case 'stop':
           fastify.log.info('[Twilio] stream stopped');
           if (openAiWs?.readyState === WebSocket.OPEN) openAiWs.close();
           break;
-
-        default:
-          break;
       }
     });
 
     twilioWs.on('close', () => {
-      fastify.log.info('[Twilio] WebSocket closed');
+      fastify.log.info('[Twilio] WS closed');
       if (openAiWs?.readyState === WebSocket.OPEN) openAiWs.close();
     });
 
-    twilioWs.on('error', (err) => {
-      fastify.log.error('[Twilio] WebSocket error: %s', err.message);
-    });
+    twilioWs.on('error', (err) => fastify.log.error('[Twilio] WS error: %s', err.message));
   });
 });
 
