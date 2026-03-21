@@ -178,6 +178,7 @@ fastify.register(async (app) => {
 
     let openAiWs = null;
     let streamSid = null;
+    let callSid = null;
     let sessionReady = false;
 
     // ── OpenAI Realtime connection ──────────────────────────────────────────
@@ -208,18 +209,44 @@ fastify.register(async (app) => {
           JSON.stringify({
             type: 'session.update',
             session: {
-              turn_detection: { type: 'server_vad' },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.6,           // higher = less sensitive, fewer false triggers
+                prefix_padding_ms: 300,
+                silence_duration_ms: 1000, // wait 1s of silence before ending a turn
+              },
               input_audio_format: 'g711_ulaw',
               output_audio_format: 'g711_ulaw',
               voice: 'cedar',
               instructions: sessionInstructions,
               modalities: ['text', 'audio'],
               temperature: 0.8,
+              tools: [
+                {
+                  type: 'function',
+                  name: 'hang_up_call',
+                  description: 'End the phone call. Call this when the conversation is complete — after a goodbye, after the prospect says not interested, or after getting their email.',
+                  parameters: { type: 'object', properties: {}, required: [] },
+                },
+              ],
+              tool_choice: 'auto',
             },
           }),
         );
         sessionReady = true;
         fastify.log.info('[OpenAI] session.created → session.update sent');
+        return;
+      }
+
+      // Handle hang_up_call tool invocation
+      if (event.type === 'response.output_item.added' && event.item?.type === 'function_call' && event.item?.name === 'hang_up_call') {
+        fastify.log.info('[OpenAI] hang_up_call triggered — ending call');
+        if (callSid) {
+          twilioClient.calls(callSid).update({ status: 'completed' }).catch((err) => {
+            fastify.log.error('[Twilio] failed to hang up call: %s', err.message);
+          });
+        }
+        if (openAiWs?.readyState === WebSocket.OPEN) openAiWs.close();
         return;
       }
 
@@ -280,7 +307,8 @@ fastify.register(async (app) => {
 
         case 'start':
           streamSid = msg.start.streamSid;
-          fastify.log.info('[Twilio] stream started — streamSid: %s', streamSid);
+          callSid = msg.start.callSid;
+          fastify.log.info('[Twilio] stream started — streamSid: %s callSid: %s', streamSid, callSid);
           break;
 
         case 'media': {
