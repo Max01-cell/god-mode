@@ -10,6 +10,7 @@
   "dependencies": {
     "@fastify/formbody": "^7.4.0",
     "@fastify/websocket": "^8.3.1",
+    "alawmulaw": "^6.0.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
     "twilio": "^5.3.7",

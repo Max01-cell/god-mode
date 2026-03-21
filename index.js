@@ -5,6 +5,43 @@ import fastifyWs from '@fastify/websocket';
 import WebSocket from 'ws';
 import twilio from 'twilio';
 import { buildPrompt } from './prompt.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import mulaw from 'alawmulaw';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Load background ambiance (raw mulaw 8kHz mono) and keep a loop cursor per call
+const bgRaw = readFileSync(join(__dirname, 'background.raw'));
+const BACKGROUND_VOLUME = 0.04; // 4% — barely audible, just adds room tone
+
+function mixBackground(base64Chunk, bgCursor) {
+  const signal = Buffer.from(base64Chunk, 'base64');
+  const len = signal.length;
+
+  // Decode both buffers to 16-bit PCM
+  const signalPcm = mulaw.decode(signal);
+  const bgSlice = Buffer.allocUnsafe(len);
+  for (let i = 0; i < len; i++) {
+    bgSlice[i] = bgRaw[(bgCursor + i) % bgRaw.length];
+  }
+  const bgPcm = mulaw.decode(bgSlice);
+
+  // Mix: full signal + attenuated background, clamp to int16 range
+  const mixed = new Int16Array(len);
+  for (let i = 0; i < len; i++) {
+    mixed[i] = Math.max(-32768, Math.min(32767,
+      Math.round(signalPcm[i] + bgPcm[i] * BACKGROUND_VOLUME)
+    ));
+  }
+
+  const mixedBuf = mulaw.encode(mixed);
+  return {
+    payload: Buffer.from(mixedBuf).toString('base64'),
+    nextCursor: (bgCursor + len) % bgRaw.length,
+  };
+}
 
 const {
   OPENAI_API_KEY,
@@ -158,6 +195,7 @@ fastify.register(async (app) => {
     let twilioStarted    = false; // true after "start" event received from Twilio
     let agentSpeaking    = false;
     let micEnabled       = false;
+    let bgCursor         = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
 
     // Called once both OpenAI session.created AND Twilio start have fired.
     // Only then do we have the callSid to look up business data.
@@ -264,8 +302,10 @@ fastify.register(async (app) => {
 
       if (event.type === 'response.audio.delta' && event.delta && streamSid) {
         agentSpeaking = true;
+        const { payload, nextCursor } = mixBackground(event.delta, bgCursor);
+        bgCursor = nextCursor;
         twilioWs.send(JSON.stringify({
-          event: 'media', streamSid, media: { payload: event.delta },
+          event: 'media', streamSid, media: { payload },
         }));
         return;
       }
