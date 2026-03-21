@@ -27,9 +27,8 @@ const twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
 
 const callLogs = [];
 
-// Per-call business data keyed by callSid — populated before the call dials
-// and consumed when the media-stream WebSocket opens.
-const pendingBusinessData = new Map();
+// Most recent business data — set by /make-call, consumed by the next WebSocket connection.
+let latestBusinessData = null;
 
 // ── Server ──────────────────────────────────────────────────────────────────
 
@@ -85,13 +84,8 @@ fastify.post('/make-call', async (req, reply) => {
 
   console.log('[make-call] callSid assigned:', call.sid);
 
-  // Store business data so the media-stream handler can pick it up by callSid
-  if (business_data && Object.keys(business_data).length > 0) {
-    pendingBusinessData.set(call.sid, business_data);
-    console.log('[make-call] business_data stored in pendingBusinessData for callSid:', call.sid);
-  } else {
-    console.log('[make-call] no business_data to store');
-  }
+  latestBusinessData = (business_data && Object.keys(business_data).length > 0) ? business_data : null;
+  console.log('[make-call] latestBusinessData set:', JSON.stringify(latestBusinessData, null, 2));
 
   callLogs.push({
     callSid: call.sid,
@@ -130,9 +124,7 @@ fastify.post('/batch-call', async (req, reply) => {
         statusCallbackMethod: 'POST',
       });
 
-      if (business_data && Object.keys(business_data).length > 0) {
-        pendingBusinessData.set(call.sid, business_data);
-      }
+      latestBusinessData = (business_data && Object.keys(business_data).length > 0) ? business_data : null;
 
       callLogs.push({
         callSid: call.sid,
@@ -157,10 +149,6 @@ fastify.post('/call-status', async (req, reply) => {
   const { CallSid, CallStatus } = req.body ?? {};
   const entry = callLogs.find((l) => l.callSid === CallSid);
   if (entry) entry.status = CallStatus;
-  // Clean up business data for completed/failed calls
-  if (['completed', 'failed', 'busy', 'no-answer', 'canceled'].includes(CallStatus)) {
-    pendingBusinessData.delete(CallSid);
-  }
   reply.send({ ok: true });
 });
 
@@ -174,16 +162,13 @@ fastify.register(async (app) => {
   app.get('/media-stream', { websocket: true }, (connection, req) => {
     const twilioWs = connection.socket;
 
-    // Extract callSid passed as query param from the TwiML Stream URL
-    const callSid = new URL(req.url, 'http://localhost').searchParams.get('callSid');
-    console.log('[media-stream] WebSocket opened, callSid from query:', callSid);
-    console.log('[media-stream] pendingBusinessData keys:', [...pendingBusinessData.keys()]);
-
-    const businessData = callSid ? (pendingBusinessData.get(callSid) ?? null) : null;
-    console.log('[media-stream] businessData looked up:', JSON.stringify(businessData, null, 2));
+    // Consume the latest business data and immediately clear it
+    const businessData = latestBusinessData;
+    latestBusinessData = null;
+    console.log('[media-stream] businessData consumed:', JSON.stringify(businessData, null, 2));
 
     const sessionInstructions = buildPrompt(businessData);
-    console.log('[media-stream] first 500 chars of instructions being sent to OpenAI:\n', sessionInstructions.slice(0, 500));
+    console.log('[media-stream] first 500 chars of instructions:\n', sessionInstructions.slice(0, 500));
 
     let openAiWs = null;
     let streamSid = null;
