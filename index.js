@@ -212,9 +212,9 @@ fastify.register(async (app) => {
             session: {
               turn_detection: {
                 type: 'server_vad',
-                threshold: 0.6,           // higher = less sensitive, fewer false triggers
+                threshold: 0.7,            // higher = less sensitive, fewer false triggers
                 prefix_padding_ms: 300,
-                silence_duration_ms: 1000, // wait 1s of silence before ending a turn
+                silence_duration_ms: 1500, // wait 1.5s of silence before ending a turn
               },
               input_audio_format: 'g711_ulaw',
               output_audio_format: 'g711_ulaw',
@@ -271,12 +271,14 @@ fastify.register(async (app) => {
         return;
       }
 
-      // Agent finished speaking — re-enable mic input and clear any buffered echo
+      // Agent finished speaking — brief cooldown, then re-enable mic and flush echo
       if (event.type === 'response.audio.done') {
-        agentSpeaking = false;
-        if (openAiWs?.readyState === WebSocket.OPEN) {
-          openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
-        }
+        setTimeout(() => {
+          agentSpeaking = false;
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
+          }
+        }, 500); // 500ms cooldown lets Twilio finish playing the last audio chunk
         if (streamSid) {
           twilioWs.send(
             JSON.stringify({ event: 'mark', streamSid, mark: { name: 'response_done' } }),
