@@ -298,7 +298,7 @@ fastify.register(async (app) => {
         session: {
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.5,
+            threshold: 0.6,
             prefix_padding_ms: 300,
             silence_duration_ms: 500,
           },
@@ -455,7 +455,7 @@ fastify.register(async (app) => {
           return;
         }
 
-        if (msSinceAgentSpoke < 1500) {
+        if (msSinceAgentSpoke < 2000) {
           // Agent just finished — likely echo tail, not human speech
           fastify.log.info('[VAD] speech_started suppressed (%dms after agent finished)', msSinceAgentSpoke);
           if (openAiWs?.readyState === WebSocket.OPEN) {
