@@ -240,7 +240,7 @@ fastify.register(async (app) => {
     let bgCursor           = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
     let silenceTimer     = null; // fires "hello?" after long mid-conversation silence
 
-    const SILENCE_CHECK_MS = 20000; // 20s of no human speech → check in
+    const SILENCE_CHECK_MS = 30000; // 30s of no human speech → check in
 
     function resetSilenceWatcher() {
       if (silenceTimer) clearTimeout(silenceTimer);
@@ -298,9 +298,9 @@ fastify.register(async (app) => {
         session: {
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.75,
+            threshold: 0.65,
             prefix_padding_ms: 300,
-            silence_duration_ms: 800,
+            silence_duration_ms: 600,
           },
           input_audio_format: 'g711_ulaw',
           output_audio_format: 'g711_ulaw',
