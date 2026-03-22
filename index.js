@@ -149,6 +149,8 @@ fastify.post('/follow-up-call', async (req, reply) => {
   console.log('[follow-up-call] callSid:', call.sid);
 
   businessDataMap.set(call.sid, { callType: 'follow-up', businessData: business_data ?? {}, savingsData: savings_data });
+  console.log('[follow-up-call] stored in map — callSid:', call.sid, '| callType: follow-up | map size now:', businessDataMap.size);
+  console.log('[follow-up-call] map entry:', JSON.stringify(businessDataMap.get(call.sid), null, 2));
 
   callLogs.push({
     callSid: call.sid,
@@ -262,26 +264,34 @@ fastify.register(async (app) => {
       if (!openAiCreated || !twilioStarted) return;
 
       const callEntry = businessDataMap.get(callSid) ?? null;
+      console.log('[session] maybeSendSessionUpdate — callSid:', callSid, '| entry found:', !!callEntry);
       if (callEntry) {
         businessDataMap.delete(callSid);
-        console.log('[session] callType=%s for callSid %s', callEntry.callType, callSid);
+        console.log('[session] callType from map:', callEntry.callType);
+        console.log('[session] businessData:', JSON.stringify(callEntry.businessData));
+        console.log('[session] savingsData:', JSON.stringify(callEntry.savingsData));
       } else {
-        console.log('[session] no call data found for callSid', callSid);
+        console.log('[session] WARNING: no call data found for callSid', callSid, '— falling back to cold call prompt');
       }
 
       const { callType = 'cold', businessData = null, savingsData = null } = callEntry ?? {};
+      console.log('[session] resolved callType:', callType);
 
       let instructions;
       try {
-        instructions = callType === 'follow-up'
-          ? buildFollowUpPrompt(businessData, savingsData)
-          : buildColdCallPrompt(businessData);
+        if (callType === 'follow-up') {
+          console.log('[session] LOADING: follow-up prompt');
+          instructions = buildFollowUpPrompt(businessData, savingsData);
+        } else {
+          console.log('[session] LOADING: cold-call prompt');
+          instructions = buildColdCallPrompt(businessData);
+        }
       } catch (err) {
         console.error('[session] buildPrompt error, using cold-call default:', err.message);
         instructions = buildColdCallPrompt(null);
       }
 
-      console.log('[session] sending session.update — first 500 chars:\n', instructions.slice(0, 500));
+      console.log('[session] instructions first 200 chars:', instructions.slice(0, 200));
 
       openAiWs.send(JSON.stringify({
         type: 'session.update',
@@ -481,7 +491,8 @@ fastify.register(async (app) => {
         case 'start':
           streamSid = msg.start.streamSid;
           callSid   = msg.start.callSid;
-          console.log('[Twilio] start — streamSid:', streamSid, 'callSid:', callSid);
+          console.log('[Twilio] start — streamSid:', streamSid, '| callSid:', callSid);
+          console.log('[Twilio] start — map lookup result:', JSON.stringify(businessDataMap.get(callSid)));
           twilioStarted = true;
           maybeSendSessionUpdate();
           break;
