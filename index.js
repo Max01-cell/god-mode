@@ -4,7 +4,8 @@ import fastifyFormBody from '@fastify/formbody';
 import fastifyWs from '@fastify/websocket';
 import WebSocket from 'ws';
 import twilio from 'twilio';
-import { buildPrompt } from './prompt.js';
+import { buildColdCallPrompt } from './prompts/cold-call.js';
+import { buildFollowUpPrompt } from './prompts/follow-up.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -112,13 +113,47 @@ fastify.post('/make-call', async (req, reply) => {
   console.log('[make-call] callSid:', call.sid);
 
   if (business_data && Object.keys(business_data).length > 0) {
-    businessDataMap.set(call.sid, business_data);
+    businessDataMap.set(call.sid, { callType: 'cold', businessData: business_data, savingsData: null });
     console.log('[make-call] stored business_data in map for callSid:', call.sid);
   }
 
   callLogs.push({
     callSid: call.sid,
     direction: 'outbound',
+    to,
+    business_name: business_data?.business_name ?? null,
+    owner_name: business_data?.owner_name ?? null,
+    timestamp: new Date().toISOString(),
+    status: 'initiated',
+  });
+
+  reply.send({ callSid: call.sid, status: call.status });
+});
+
+fastify.post('/follow-up-call', async (req, reply) => {
+  const { to, business_data, savings_data } = req.body ?? {};
+  if (!to) return reply.status(400).send({ error: 'Missing "to" field' });
+  if (!savings_data) return reply.status(400).send({ error: 'Missing "savings_data" field' });
+
+  console.log('[follow-up-call] business_data:', JSON.stringify(business_data, null, 2));
+  console.log('[follow-up-call] savings_data:', JSON.stringify(savings_data, null, 2));
+
+  const call = await twilioClient.calls.create({
+    url: `https://${PUBLIC_URL}/outbound-twiml`,
+    to,
+    from: TWILIO_PHONE_NUMBER,
+    statusCallback: `https://${PUBLIC_URL}/call-status`,
+    statusCallbackMethod: 'POST',
+  });
+
+  console.log('[follow-up-call] callSid:', call.sid);
+
+  businessDataMap.set(call.sid, { callType: 'follow-up', businessData: business_data ?? {}, savingsData: savings_data });
+
+  callLogs.push({
+    callSid: call.sid,
+    direction: 'outbound',
+    type: 'follow-up',
     to,
     business_name: business_data?.business_name ?? null,
     owner_name: business_data?.owner_name ?? null,
@@ -150,7 +185,7 @@ fastify.post('/batch-call', async (req, reply) => {
       });
 
       if (business_data && Object.keys(business_data).length > 0) {
-        businessDataMap.set(call.sid, business_data);
+        businessDataMap.set(call.sid, { callType: 'cold', businessData: business_data, savingsData: null });
       }
 
       callLogs.push({
@@ -226,20 +261,24 @@ fastify.register(async (app) => {
     function maybeSendSessionUpdate() {
       if (!openAiCreated || !twilioStarted) return;
 
-      const businessData = businessDataMap.get(callSid) ?? null;
-      if (businessData) {
+      const callEntry = businessDataMap.get(callSid) ?? null;
+      if (callEntry) {
         businessDataMap.delete(callSid);
-        console.log('[session] found business_data for callSid', callSid, ':', JSON.stringify(businessData, null, 2));
+        console.log('[session] callType=%s for callSid %s', callEntry.callType, callSid);
       } else {
-        console.log('[session] no business_data found for callSid', callSid);
+        console.log('[session] no call data found for callSid', callSid);
       }
+
+      const { callType = 'cold', businessData = null, savingsData = null } = callEntry ?? {};
 
       let instructions;
       try {
-        instructions = buildPrompt(businessData);
+        instructions = callType === 'follow-up'
+          ? buildFollowUpPrompt(businessData, savingsData)
+          : buildColdCallPrompt(businessData);
       } catch (err) {
-        console.error('[session] buildPrompt error, using default:', err.message);
-        instructions = buildPrompt(null);
+        console.error('[session] buildPrompt error, using cold-call default:', err.message);
+        instructions = buildColdCallPrompt(null);
       }
 
       console.log('[session] sending session.update — first 500 chars:\n', instructions.slice(0, 500));
