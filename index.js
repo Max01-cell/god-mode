@@ -197,8 +197,10 @@ fastify.register(async (app) => {
     let micEnabled       = false;
     let speechDetected   = false; // set true on first VAD speech_started event
     let lastAgentSpokeAt = 0;    // timestamp when mic was last re-enabled after agent speech
-    let hangUpPending    = false; // true after hang_up_call fires; actual hang-up deferred until audio done
-    let bgCursor         = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
+    let hangUpPending       = false; // true after hang_up_call fires; actual hang-up deferred until audio done
+    let currentResponseItemId = null; // item_id of the assistant message currently being generated
+    let responseAudioStartMs  = null; // when current response audio started, for truncation
+    let bgCursor           = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
     let silenceTimer     = null; // fires "hello?" after long mid-conversation silence
 
     const SILENCE_CHECK_MS = 20000; // 20s of no human speech → check in
@@ -247,9 +249,9 @@ fastify.register(async (app) => {
         session: {
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.65,
+            threshold: 0.5,
             prefix_padding_ms: 300,
-            silence_duration_ms: 700,
+            silence_duration_ms: 500,
           },
           input_audio_format: 'g711_ulaw',
           output_audio_format: 'g711_ulaw',
@@ -317,11 +319,15 @@ fastify.register(async (app) => {
         return;
       }
 
-      if (event.type === 'response.output_item.added' &&
-          event.item?.type === 'function_call' &&
-          event.item?.name === 'hang_up_call') {
-        fastify.log.info('[OpenAI] hang_up_call detected — will hang up after goodbye audio plays');
-        hangUpPending = true;
+      if (event.type === 'response.output_item.added') {
+        if (event.item?.type === 'function_call' && event.item?.name === 'hang_up_call') {
+          fastify.log.info('[OpenAI] hang_up_call detected — will hang up after goodbye audio plays');
+          hangUpPending = true;
+        } else if (event.item?.type === 'message') {
+          // Track item id so we can truncate it if the caller interrupts
+          currentResponseItemId = event.item.id;
+          responseAudioStartMs  = Date.now();
+        }
         return;
       }
 
@@ -343,6 +349,8 @@ fastify.register(async (app) => {
 
       // Agent done generating — send mark; mic re-opens when Twilio echoes it back
       if (event.type === 'response.audio.done' && streamSid) {
+        currentResponseItemId = null;
+        responseAudioStartMs  = null;
         twilioWs.send(JSON.stringify({
           event: 'mark', streamSid, mark: { name: 'response_done' },
         }));
@@ -351,14 +359,49 @@ fastify.register(async (app) => {
 
       if (event.type === 'input_audio_buffer.speech_started') {
         const msSinceAgentSpoke = Date.now() - lastAgentSpokeAt;
-        if (agentSpeaking || msSinceAgentSpoke < 2000) {
-          // Too soon after agent spoke — likely echo or audio tail, not real human speech
-          fastify.log.info('[VAD] speech_started suppressed (%dms after agent, agentSpeaking=%s)', msSinceAgentSpoke, agentSpeaking);
+
+        if (agentSpeaking) {
+          // ── Real interruption: caller spoke while agent was talking ──────────
+          fastify.log.info('[interruption] detected — clearing Twilio audio and cancelling response');
+
+          // 1. Clear Twilio playback queue immediately so caller hears silence
+          if (streamSid) {
+            twilioWs.send(JSON.stringify({ event: 'clear', streamSid }));
+          }
+
+          // 2. Cancel the in-progress OpenAI response
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+
+            // 3. Truncate the last assistant item so the model knows it was cut off
+            if (currentResponseItemId && responseAudioStartMs) {
+              const audioEndMs = Date.now() - responseAudioStartMs;
+              openAiWs.send(JSON.stringify({
+                type: 'conversation.item.truncate',
+                item_id: currentResponseItemId,
+                content_index: 0,
+                audio_end_ms: audioEndMs,
+              }));
+            }
+          }
+
+          agentSpeaking = false;
+          currentResponseItemId = null;
+          responseAudioStartMs  = null;
+          speechDetected = true;
+          resetSilenceWatcher();
+          return;
+        }
+
+        if (msSinceAgentSpoke < 1500) {
+          // Agent just finished — likely echo tail, not human speech
+          fastify.log.info('[VAD] speech_started suppressed (%dms after agent finished)', msSinceAgentSpoke);
           if (openAiWs?.readyState === WebSocket.OPEN) {
             openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
           }
           return;
         }
+
         speechDetected = true;
         resetSilenceWatcher(); // reset 20s timer on every real human utterance
         return;
