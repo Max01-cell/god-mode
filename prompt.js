@@ -66,7 +66,7 @@ Goal: get their processing statement. Ask for their email to send an upload link
 - End immediately and gracefully if they say stop or not interested.
 
 ## ENDING THE CALL
-When the conversation is clearly done — goodbye exchanged, said not interested, email collected, or voicemail left — call hang_up_call immediately.`;
+When the conversation is clearly done (goodbye exchanged, said not interested, email collected, or voicemail left), say a warm closing out loud first — something like "Perfect, you'll hear from us within 24 hours. Have a great day!" or "No worries at all, take care!" — then immediately call hang_up_call. Never call hang_up_call without first saying goodbye.`;
 
 /**
  * Build a session-specific system prompt by prepending business data to the top.

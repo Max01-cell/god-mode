@@ -197,6 +197,7 @@ fastify.register(async (app) => {
     let micEnabled       = false;
     let speechDetected   = false; // set true on first VAD speech_started event
     let lastAgentSpokeAt = 0;    // timestamp when mic was last re-enabled after agent speech
+    let hangUpPending    = false; // true after hang_up_call fires; actual hang-up deferred until audio done
     let bgCursor         = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
     let silenceTimer     = null; // fires "hello?" after long mid-conversation silence
 
@@ -319,13 +320,8 @@ fastify.register(async (app) => {
       if (event.type === 'response.output_item.added' &&
           event.item?.type === 'function_call' &&
           event.item?.name === 'hang_up_call') {
-        fastify.log.info('[OpenAI] hang_up_call triggered — ending call');
-        if (callSid) {
-          twilioClient.calls(callSid).update({ status: 'completed' }).catch((err) => {
-            fastify.log.error('[Twilio] failed to hang up: %s', err.message);
-          });
-        }
-        if (openAiWs?.readyState === WebSocket.OPEN) openAiWs.close();
+        fastify.log.info('[OpenAI] hang_up_call detected — will hang up after goodbye audio plays');
+        hangUpPending = true;
         return;
       }
 
@@ -405,6 +401,17 @@ fastify.register(async (app) => {
               }
               resetSilenceWatcher(); // start 20s countdown from when agent finished speaking
               fastify.log.info('[Twilio] mark ack — mic re-enabled');
+
+              // Deferred hang-up: goodbye audio has now finished playing
+              if (hangUpPending) {
+                fastify.log.info('[hangup] goodbye audio done — ending call');
+                if (callSid) {
+                  twilioClient.calls(callSid).update({ status: 'completed' }).catch((err) => {
+                    fastify.log.error('[Twilio] failed to hang up: %s', err.message);
+                  });
+                }
+                if (openAiWs?.readyState === WebSocket.OPEN) openAiWs.close();
+              }
             }, 300);
           }
           break;
