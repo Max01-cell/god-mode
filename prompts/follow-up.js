@@ -82,6 +82,7 @@ export function buildFollowUpPrompt(businessData, savingsData) {
   if (businessData?.owner_name)     lines.push(`Owner Name: ${businessData.owner_name} — USE THIS EXACT NAME.`);
   if (businessData?.business_type)  lines.push(`Business Type: ${businessData.business_type}`);
   if (businessData?.city)           lines.push(`City: ${businessData.city}`);
+  if (businessData?.email)          lines.push(`Email on File (from previous call): ${businessData.email}`);
 
   lines.push('');
 
@@ -106,6 +107,13 @@ export function buildFollowUpPrompt(businessData, savingsData) {
   }
 
   lines.push('');
+  if (businessData?.email) {
+    lines.push(`EMAIL INSTRUCTION: The prospect's email from the previous call is: ${businessData.email}`);
+    lines.push(`When you need to send them something, reference this email and confirm it rather than asking for it again.`);
+    lines.push(`Say something like: "I've got ${businessData.email} on file from last time — is that still the best one to send the application to?"`);
+    lines.push(`This shows you remember the previous interaction and makes the follow-up feel connected to the first call.`);
+    lines.push('');
+  }
   if (businessData?.owner_name) {
     lines.push(`OPENING INSTRUCTION: Wait for them to say hello. Then ask "Hey, is ${businessData.owner_name} around?" — exact name only.`);
   } else {
