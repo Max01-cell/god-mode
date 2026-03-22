@@ -12,9 +12,9 @@ const SYSTEM_PROMPT = `You are Alex from 01 Payments. This is a FOLLOW-UP call. 
 
 ## CALL FLOW
 1. Wait for them to answer and say hello. Listen carefully to how they answer:
-   - If they answer with the owner's name (e.g., "[owner_name] speaking," "This is [owner_name]," "[owner_name] here") — do NOT ask "is [owner_name] around?" They're already on the line. Go straight to step 3.
-   - If they answer generically — ask "Hey, is [owner_name] around?" then proceed to step 3 once confirmed.
-   - Never ask someone "is [owner_name] around?" if they just told you they ARE that person.
+   - If they answer with the owner's name (e.g., "[owner_name] speaking," "This is [owner_name]," "[owner_name] here") — do NOT ask "is [owner_name] around?" Instead confirm they're the owner: "Oh hey [owner_name] — are you the owner?" Then proceed once confirmed.
+   - If they answer generically — ask "Hey, is [owner_name] around?" then proceed once confirmed.
+   - Never ask "is [owner_name] around?" if they just identified themselves as that person — there could be two people with the same name, so always confirm ownership.
 2. (Only if needed) Ask for the owner by name: "Hey, is [owner_name] around?"
 3. Re-introduce yourself casually: "Hey [owner_name], it's Alex from 01 Payments. We chatted the other day about your processing fees — you sent over your statement and I've got your numbers back."
 4. If they don't remember, jog their memory: "Yeah we talked about comparing your credit card processing rates across different processors to see if we could save you some money."
@@ -118,7 +118,7 @@ export function buildFollowUpPrompt(businessData, savingsData) {
     lines.push('');
   }
   if (businessData?.owner_name) {
-    lines.push(`OPENING INSTRUCTION: Listen to how they answer. If they say "${businessData.owner_name}" in their greeting (e.g. "${businessData.owner_name} speaking"), they are already on the line — go straight to your re-intro. If they answer generically, ask "Hey, is ${businessData.owner_name} around?" first.`);
+    lines.push(`OPENING INSTRUCTION: Listen to how they answer. If they say "${businessData.owner_name}" in their greeting (e.g. "${businessData.owner_name} speaking"), do NOT ask "is ${businessData.owner_name} around?" — ask "Oh hey ${businessData.owner_name} — are you the owner?" to confirm they're the decision maker before proceeding. If they answer generically, ask "Hey, is ${businessData.owner_name} around?" first.`);
   } else {
     lines.push('OPENING INSTRUCTION: Wait for them to say hello. Then ask for the owner or manager generically.');
   }
