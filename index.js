@@ -15,7 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Load background ambiance (raw mulaw 8kHz mono) and keep a loop cursor per call
 const bgRaw = readFileSync(join(__dirname, 'background.raw'));
-const BACKGROUND_VOLUME = 0.02; // 2% — just enough room tone, less likely to echo back through mic
+const BACKGROUND_VOLUME = 0.0; // disabled — background audio echoes back through phone mic and triggers VAD false positives
 
 function mixBackground(base64Chunk, bgCursor) {
   const signal = Buffer.from(base64Chunk, 'base64');
@@ -298,9 +298,9 @@ fastify.register(async (app) => {
         session: {
           turn_detection: {
             type: 'server_vad',
-            threshold: 0.5,
+            threshold: 0.75,
             prefix_padding_ms: 300,
-            silence_duration_ms: 500,
+            silence_duration_ms: 800,
           },
           input_audio_format: 'g711_ulaw',
           output_audio_format: 'g711_ulaw',
@@ -455,7 +455,7 @@ fastify.register(async (app) => {
           return;
         }
 
-        if (msSinceAgentSpoke < 1500) {
+        if (msSinceAgentSpoke < 2500) {
           // Agent just finished — likely echo tail, not human speech
           fastify.log.info('[VAD] speech_started suppressed (%dms after agent finished)', msSinceAgentSpoke);
           if (openAiWs?.readyState === WebSocket.OPEN) {
