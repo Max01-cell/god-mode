@@ -262,7 +262,12 @@ fastify.register(async (app) => {
         setTimeout(() => {
           if (!speechDetected && !agentSpeaking && openAiWs?.readyState === WebSocket.OPEN) {
             fastify.log.info('[session] no speech after 5s — triggering greeting');
-            openAiWs.send(JSON.stringify({ type: 'response.create' }));
+            openAiWs.send(JSON.stringify({
+              type: 'response.create',
+              response: {
+                instructions: 'Say only a single casual greeting — "Hey." or "Hello." — nothing else. One word or two max. Then stop and wait for them to speak.',
+              },
+            }));
           }
         }, 5000);
       }, 2000);
