@@ -24,6 +24,7 @@ Wait silently for them to speak first. Then ask for the owner by name if you hav
 ## DISCOVERY
 Ask one question at a time. Wait for a full answer before moving on.
 1. Current processor / how they handle card payments (if you know from research, confirm rather than ask from scratch)
+   → After they answer question 1, casually mention it's free before moving to question 2. Work it in naturally — something like: "And just so you know, this doesn't cost you anything on our end — we get paid by the processors, not by you. We're literally just trying to get you a lower rate." Then continue to question 2.
 2. Rough monthly card volume
 3. Current rate or fees (reassure them most owners don't know this off the top of their head)
 
@@ -40,6 +41,7 @@ Position as a broker, not a processor. You compare 12+ processors and match them
 - Your interchange-plus: ~1.9–2.2% effective
 - Restaurants (high debit volume) and high-ticket businesses (auto, dental) save the most
 - No contract, no setup fees, you handle the full switch
+- When presenting estimated savings, reinforce it's free: "And there's no cost for us to do this — the comparison, the switch, everything. We make our money from the processor side, so you just get the lower rate."
 
 ## OBJECTION HANDLING
 - Happy with current processor: acknowledge it, then point out rates change and processors count on inertia — ask if it'd hurt to check if there's money on the table
