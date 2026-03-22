@@ -312,6 +312,19 @@ fastify.register(async (app) => {
       let event;
       try { event = JSON.parse(raw); } catch { return; }
 
+      // Log every VAD and response lifecycle event for debugging
+      if ([
+        'input_audio_buffer.speech_started',
+        'input_audio_buffer.speech_stopped',
+        'input_audio_buffer.committed',
+        'response.created',
+        'response.cancelled',
+        'response.done',
+        'response.audio.done',
+      ].includes(event.type)) {
+        console.log(`[OpenAI event] ${event.type} | agentSpeaking=${agentSpeaking} | streamSid=${streamSid}`);
+      }
+
       if (event.type === 'session.created') {
         fastify.log.info('[OpenAI] session.created received');
         openAiCreated = true;
@@ -362,7 +375,7 @@ fastify.register(async (app) => {
 
         if (agentSpeaking) {
           // ── Real interruption: caller spoke while agent was talking ──────────
-          fastify.log.info('[interruption] detected — clearing Twilio audio and cancelling response');
+          console.log('INTERRUPTION: cleared audio and cancelled response');
 
           // 1. Clear Twilio playback queue immediately so caller hears silence
           if (streamSid) {
@@ -460,7 +473,9 @@ fastify.register(async (app) => {
           break;
 
         case 'media':
-          if (!sessionReady || !micEnabled || agentSpeaking) break;
+          // Always forward audio to OpenAI — server_vad needs it even while agent is speaking
+          // so it can detect interruptions and fire speech_started
+          if (!sessionReady || !micEnabled) break;
           if (openAiWs.readyState === WebSocket.OPEN) {
             openAiWs.send(JSON.stringify({
               type: 'input_audio_buffer.append',
