@@ -323,7 +323,7 @@ fastify.register(async (app) => {
 
       sessionReady = true;
 
-      // Clear any audio buffered before session was ready, then open mic after 2s
+      // Clear any audio buffered before session was ready, then open mic after 500ms
       openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
       setTimeout(() => {
         micEnabled = true;
@@ -341,7 +341,7 @@ fastify.register(async (app) => {
             }));
           }
         }, 5000);
-      }, 2000);
+      }, 500);
     }
 
     // ── OpenAI Realtime connection ───────────────────────────────────────────
