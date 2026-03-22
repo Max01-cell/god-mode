@@ -198,6 +198,25 @@ fastify.register(async (app) => {
     let speechDetected   = false; // set true on first VAD speech_started event
     let lastAgentSpokeAt = 0;    // timestamp when mic was last re-enabled after agent speech
     let bgCursor         = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
+    let silenceTimer     = null; // fires "hello?" after long mid-conversation silence
+
+    const SILENCE_CHECK_MS = 20000; // 20s of no human speech → check in
+
+    function resetSilenceWatcher() {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      if (!speechDetected) return; // only watch after conversation has started
+      silenceTimer = setTimeout(() => {
+        if (!agentSpeaking && openAiWs?.readyState === WebSocket.OPEN) {
+          fastify.log.info('[silence] 20s of silence — checking in');
+          openAiWs.send(JSON.stringify({
+            type: 'response.create',
+            response: {
+              instructions: 'Say only "Hello?" or "You still there?" — one short phrase to check if they\'re still on the line. Nothing else.',
+            },
+          }));
+        }
+      }, SILENCE_CHECK_MS);
+    }
 
     // Called once both OpenAI session.created AND Twilio start have fired.
     // Only then do we have the callSid to look up business data.
@@ -345,6 +364,7 @@ fastify.register(async (app) => {
           return;
         }
         speechDetected = true;
+        resetSilenceWatcher(); // reset 20s timer on every real human utterance
         return;
       }
 
@@ -383,6 +403,7 @@ fastify.register(async (app) => {
               if (openAiWs?.readyState === WebSocket.OPEN) {
                 openAiWs.send(JSON.stringify({ type: 'input_audio_buffer.clear' }));
               }
+              resetSilenceWatcher(); // start 20s countdown from when agent finished speaking
               fastify.log.info('[Twilio] mark ack — mic re-enabled');
             }, 300);
           }
@@ -407,6 +428,7 @@ fastify.register(async (app) => {
 
     twilioWs.on('close', () => {
       fastify.log.info('[Twilio] WS closed');
+      if (silenceTimer) clearTimeout(silenceTimer);
       if (openAiWs?.readyState === WebSocket.OPEN) openAiWs.close();
     });
 
