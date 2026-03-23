@@ -2,6 +2,8 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import fastifyFormBody from '@fastify/formbody';
 import fastifyWs from '@fastify/websocket';
+import fastifyMultipart from '@fastify/multipart';
+import fastifyCors from '@fastify/cors';
 import WebSocket from 'ws';
 import twilio from 'twilio';
 import { buildColdCallPrompt } from './prompts/cold-call.js';
@@ -10,6 +12,9 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import alawmulaw from 'alawmulaw';
+import { createLead, updateLead, leads } from './lib/leads-store.js';
+import { analyzeStatement } from './lib/analyze-statement.js';
+import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport } from './lib/email.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -70,7 +75,20 @@ const businessDataMap = new Map();
 // ── Server ───────────────────────────────────────────────────────────────────
 
 const fastify = Fastify({ logger: true });
+await fastify.register(fastifyCors, {
+  origin: ['https://01payments.com', 'https://www.01payments.com'],
+  methods: ['POST', 'GET', 'OPTIONS'],
+  allowedHeaders: ['Content-Type'],
+  preflightContinue: false,   // fastify-cors handles OPTIONS and returns 204 automatically
+  optionsSuccessStatus: 204,
+});
 await fastify.register(fastifyFormBody);
+await fastify.register(fastifyMultipart, {
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10 MB
+    files: 1,
+  },
+});
 await fastify.register(fastifyWs);
 
 // ── TwiML helper ──────────────────────────────────────────────────────────────
@@ -216,7 +234,91 @@ fastify.post('/call-status', async (req, reply) => {
   reply.send({ ok: true });
 });
 
+fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+
 fastify.get('/logs', async (_req, reply) => reply.send(callLogs));
+
+fastify.get('/leads', async (_req, reply) => reply.send([...leads.values()]));
+
+// ── Statement upload + analysis ───────────────────────────────────────────────
+
+const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
+
+fastify.post('/submit-statement', async (req, reply) => {
+  // Parse multipart fields and file
+  const parts = req.parts();
+
+  const fields = {};
+  let fileBuffer = null;
+  let fileName = null;
+  let fileType = null;
+
+  for await (const part of parts) {
+    if (part.type === 'file') {
+      if (part.fieldname !== 'statement') continue;
+
+      fileType = part.mimetype;
+      fileName = part.filename;
+
+      const chunks = [];
+      for await (const chunk of part.file) {
+        chunks.push(chunk);
+      }
+      fileBuffer = Buffer.concat(chunks);
+    } else {
+      fields[part.fieldname] = part.value;
+    }
+  }
+
+  const { fullName, businessName, phone, email } = fields;
+
+  if (!fullName || !businessName || !phone || !email) {
+    return reply.status(400).send({ error: 'Missing required fields: fullName, businessName, phone, email' });
+  }
+
+  if (!fileBuffer || !fileBuffer.length) {
+    return reply.status(400).send({ error: 'Missing file upload (field name: statement)' });
+  }
+
+  if (!ALLOWED_MIME_TYPES.has(fileType)) {
+    return reply.status(400).send({ error: 'Unsupported file type. Upload a PDF, PNG, or JPG.' });
+  }
+
+  // 1. Save lead
+  const lead = createLead({ fullName, businessName, phone, email, fileName, fileSize: fileBuffer.length, fileType });
+  fastify.log.info('[submit-statement] new lead %s — %s (%s)', lead.id, businessName, email);
+
+  // 2. Notify owner immediately (don't await — don't block the response)
+  sendOwnerNotification(lead).catch((err) =>
+    fastify.log.error('[email] owner notification failed: %s', err.message)
+  );
+
+  // 3. Run analysis + send prospect email in background
+  setImmediate(async () => {
+    try {
+      fastify.log.info('[analysis] starting for lead %s', lead.id);
+      const savingsData = await analyzeStatement(fileBuffer, fileType);
+
+      updateLead(lead.id, { analysisStatus: 'complete', savingsData });
+      fastify.log.info('[analysis] complete for lead %s — monthly savings: %s', lead.id, savingsData.monthly_savings);
+
+      // Send savings report to prospect
+      await sendSavingsReport({ ...lead, ...fields }, savingsData);
+      fastify.log.info('[email] savings report sent to %s', email);
+    } catch (err) {
+      fastify.log.error('[analysis] failed for lead %s: %s', lead.id, err.message);
+      updateLead(lead.id, { analysisStatus: 'failed', analysisError: err.message });
+
+      // Notify owner so they can handle manually
+      sendOwnerAnalysisFailure(lead, err.message).catch((e) =>
+        fastify.log.error('[email] failure notification failed: %s', e.message)
+      );
+    }
+  });
+
+  // 4. Return immediately — analysis runs in background
+  reply.send({ ok: true, leadId: lead.id, message: 'Statement received. Your savings report will be emailed to you shortly.' });
+});
 
 // ── WebSocket media-stream handler ────────────────────────────────────────────
 

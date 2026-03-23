@@ -8,11 +8,15 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
+    "@fastify/cors": "^11.2.0",
     "@fastify/formbody": "^7.4.0",
+    "@fastify/multipart": "^9.4.0",
     "@fastify/websocket": "^8.3.1",
     "alawmulaw": "^6.0.0",
     "dotenv": "^16.4.5",
     "fastify": "^4.28.1",
+    "resend": "^6.9.4",
     "twilio": "^5.3.7",
     "ws": "^8.18.0"
   }
