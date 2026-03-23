@@ -255,7 +255,7 @@ fastify.post('/submit-statement', async (req, reply) => {
 
   for await (const part of parts) {
     if (part.type === 'file') {
-      if (part.fieldname !== 'statement') continue;
+      if (part.fieldname !== 'statement' && part.fieldname !== 'file') continue;
 
       fileType = part.mimetype;
       fileName = part.filename;
@@ -270,10 +270,13 @@ fastify.post('/submit-statement', async (req, reply) => {
     }
   }
 
-  const { fullName, businessName, phone, email } = fields;
+  // Accept both naming conventions (server-style and form-style)
+  const fullName     = fields.fullName     ?? fields.name;
+  const businessName = fields.businessName ?? fields.business_name;
+  const { phone, email } = fields;
 
   if (!fullName || !businessName || !phone || !email) {
-    return reply.status(400).send({ error: 'Missing required fields: fullName, businessName, phone, email' });
+    return reply.status(400).send({ error: 'Missing required fields' });
   }
 
   if (!fileBuffer || !fileBuffer.length) {
