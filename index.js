@@ -15,7 +15,7 @@ import { dirname, join, extname } from 'path';
 import alawmulaw from 'alawmulaw';
 import { createLead, updateLead, leads } from './lib/leads-store.js';
 import { analyzeStatement } from './lib/analyze-statement.js';
-import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport } from './lib/email.js';
+import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport, sendOwnerAnalysisReport } from './lib/email.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -420,12 +420,16 @@ fastify.post('/submit-statement', async (req, reply) => {
       fastify.log.info('[analysis] starting for lead %s', lead.id);
       const savingsData = await analyzeStatement(fileBuffer, fileType);
 
-      updateLead(lead.id, { analysisStatus: 'complete', savingsData });
+      const updatedLead = updateLead(lead.id, { analysisStatus: 'complete', savingsData });
       fastify.log.info('[analysis] complete for lead %s — monthly savings: %s', lead.id, savingsData.monthly_savings);
 
-      // Send savings report to prospect
-      await sendSavingsReport({ ...lead, ...fields }, savingsData);
+      // Send savings report to prospect (best-for-merchant only)
+      await sendSavingsReport({ ...lead, uploadFilename }, savingsData);
       fastify.log.info('[email] savings report sent to %s', email);
+
+      // Send internal analysis report to owner (all processor options)
+      await sendOwnerAnalysisReport({ ...lead, uploadFilename }, savingsData);
+      fastify.log.info('[email] owner analysis report sent');
     } catch (err) {
       fastify.log.error('[analysis] failed for lead %s: %s', lead.id, err.message);
       updateLead(lead.id, { analysisStatus: 'failed', analysisError: err.message });
