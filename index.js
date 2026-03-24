@@ -15,7 +15,7 @@ import { dirname, join, extname } from 'path';
 import alawmulaw from 'alawmulaw';
 import { createLead, updateLead, leads } from './lib/leads-store.js';
 import { analyzeStatement } from './lib/analyze-statement.js';
-import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport, sendOwnerAnalysisReport } from './lib/email.js';
+import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport, sendOwnerAnalysisReport, sendApplicationNotification, sendApplicationConfirmation } from './lib/email.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -443,6 +443,49 @@ fastify.post('/submit-statement', async (req, reply) => {
 
   // 4. Return immediately — analysis runs in background
   reply.send({ ok: true, leadId: lead.id, message: 'Statement received. Your savings report will be emailed to you shortly.' });
+});
+
+// ── Merchant application ───────────────────────────────────────────────────────
+
+fastify.post('/submit-application', async (req, reply) => {
+  const body = req.body ?? {};
+
+  // Normalize name fields
+  const fullName     = body.fullName     ?? body.full_name ?? body.name;
+  const businessName = body.businessName ?? body.business_name;
+  const email        = body.email;
+  const phone        = body.phone;
+
+  if (!fullName || !businessName || !email) {
+    return reply.status(400).send({ error: 'Missing required fields: name, business name, and email are required.' });
+  }
+
+  // Link to existing lead if email matches, otherwise create a new one
+  const existingLead = [...leads.values()].find(l => l.email?.toLowerCase() === email.toLowerCase());
+
+  let lead;
+  if (existingLead) {
+    lead = updateLead(existingLead.id, { applicationData: body, applicationSubmittedAt: new Date().toISOString() });
+    fastify.log.info('[submit-application] linked to existing lead %s — %s', lead.id, businessName);
+  } else {
+    lead = createLead({ fullName, businessName, phone: phone ?? '', email, source: 'application' });
+    updateLead(lead.id, { applicationData: body, applicationSubmittedAt: new Date().toISOString() });
+    fastify.log.info('[submit-application] new lead %s — %s', lead.id, businessName);
+  }
+
+  // Fire both emails (non-blocking)
+  sendApplicationNotification({ ...body, fullName, businessName, email }).catch(err =>
+    fastify.log.error('[email] application notification failed: %s', err.message)
+  );
+  sendApplicationConfirmation({ fullName, businessName, email }).catch(err =>
+    fastify.log.error('[email] application confirmation failed: %s', err.message)
+  );
+
+  reply.send({
+    ok: true,
+    leadId: lead.id,
+    message: 'Application submitted! Check your email for confirmation. We\'ll be in touch within 24 hours.',
+  });
 });
 
 // ── WebSocket media-stream handler ────────────────────────────────────────────
