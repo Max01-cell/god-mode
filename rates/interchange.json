@@ -1,0 +1,20 @@
+[
+  { "id": "visa_credit_cp",      "rate_bps": 160, "per_txn_cents": 10, "label": "Visa Credit (Card Present)",          "card_mix_key": "visa_credit_cp" },
+  { "id": "visa_credit_cnp",     "rate_bps": 175, "per_txn_cents": 10, "label": "Visa Credit (Card Not Present)",       "card_mix_key": "visa_credit_cnp" },
+  { "id": "visa_rewards_cp",     "rate_bps": 195, "per_txn_cents": 10, "label": "Visa Rewards (Card Present)",          "card_mix_key": "visa_rewards_cp" },
+  { "id": "visa_debit_cp",       "rate_bps": 105, "per_txn_cents": 22, "label": "Visa Debit (Card Present)",            "card_mix_key": "visa_debit_cp" },
+  { "id": "visa_debit_cnp",      "rate_bps": 115, "per_txn_cents": 15, "label": "Visa Debit (Card Not Present)",        "card_mix_key": "visa_debit_cnp" },
+  { "id": "visa_business_cp",    "rate_bps": 210, "per_txn_cents": 10, "label": "Visa Business (Card Present)",         "card_mix_key": "visa_business_cp" },
+  { "id": "visa_corporate",      "rate_bps": 235, "per_txn_cents": 10, "label": "Visa Corporate",                       "card_mix_key": "visa_corporate" },
+  { "id": "mc_credit_cp",        "rate_bps": 160, "per_txn_cents": 10, "label": "MC Credit (Card Present)",             "card_mix_key": "mc_credit_cp" },
+  { "id": "mc_credit_cnp",       "rate_bps": 170, "per_txn_cents": 10, "label": "MC Credit (Card Not Present)",         "card_mix_key": "mc_credit_cnp" },
+  { "id": "mc_world_cp",         "rate_bps": 195, "per_txn_cents": 10, "label": "MC World/Rewards (Card Present)",      "card_mix_key": "mc_world_cp" },
+  { "id": "mc_debit_cp",         "rate_bps": 105, "per_txn_cents": 22, "label": "MC Debit (Card Present)",              "card_mix_key": "mc_debit_cp" },
+  { "id": "mc_debit_cnp",        "rate_bps": 115, "per_txn_cents": 15, "label": "MC Debit (Card Not Present)",          "card_mix_key": "mc_debit_cnp" },
+  { "id": "mc_business_cp",      "rate_bps": 210, "per_txn_cents": 10, "label": "MC Business (Card Present)",           "card_mix_key": "mc_business_cp" },
+  { "id": "mc_corporate",        "rate_bps": 235, "per_txn_cents": 10, "label": "MC Corporate",                         "card_mix_key": "mc_corporate" },
+  { "id": "pin_debit",           "rate_bps": 50,  "per_txn_cents": 21, "label": "PIN Debit (Regulated)",                "card_mix_key": "pin_debit" },
+  { "id": "amex_optblue",        "rate_bps": 0,   "per_txn_cents": 0,  "label": "Amex OptBlue",                         "card_mix_key": "amex" },
+  { "id": "discover_cp",         "rate_bps": 160, "per_txn_cents": 10, "label": "Discover (Card Present)",              "card_mix_key": "discover_cp" },
+  { "id": "discover_cnp",        "rate_bps": 175, "per_txn_cents": 10, "label": "Discover (Card Not Present)",          "card_mix_key": "discover_cnp" }
+]

@@ -1,0 +1,122 @@
+{
+  "kurv": {
+    "name": "Kurv (EMS)",
+    "buy_rates": {
+      "visa_mc_present":     { "percent": 0.10, "per_txn": 0.07 },
+      "visa_mc_not_present": { "percent": 0.20, "per_txn": 0.10 },
+      "debit_pin":           { "percent": 0.05, "per_txn": 0.21 },
+      "debit_signature":     { "percent": 0.10, "per_txn": 0.07 },
+      "amex":                { "percent": 0.15, "per_txn": 0.07 },
+      "discover":            { "percent": 0.10, "per_txn": 0.07 }
+    },
+    "interchange_plus_bps": 10,
+    "per_txn_cents": 7,
+    "monthly_fee": 7.95,
+    "batch_fee": 0.10,
+    "avg_batch_size": 50,
+    "pci_fee": 0,
+    "statement_fee": 0,
+    "annual_fee": 0,
+    "chargeback_fee": 15,
+    "amex_optblue_tiers": [
+      { "max_annual_volume": 1000000, "rate_bps": 25 },
+      { "max_annual_volume": 3000000, "rate_bps": 20 },
+      { "max_annual_volume": null,    "rate_bps": 18 }
+    ],
+    "supported_business_types": ["restaurant", "retail", "services"],
+    "equipment": "free_terminal",
+    "early_termination": 0,
+    "boarding_speed": "same_day",
+    "supports_high_risk": false
+  },
+  "signapay": {
+    "name": "SignaPay",
+    "buy_rates": {
+      "visa_mc_present":     { "percent": 0.12, "per_txn": 0.06 },
+      "visa_mc_not_present": { "percent": 0.22, "per_txn": 0.10 },
+      "debit_pin":           { "percent": 0.05, "per_txn": 0.21 },
+      "debit_signature":     { "percent": 0.12, "per_txn": 0.06 },
+      "amex":                { "percent": 0.18, "per_txn": 0.08 },
+      "discover":            { "percent": 0.12, "per_txn": 0.07 }
+    },
+    "interchange_plus_bps": 12,
+    "per_txn_cents": 8,
+    "monthly_fee": 10.00,
+    "batch_fee": 0.15,
+    "avg_batch_size": 75,
+    "pci_fee": 9.95,
+    "statement_fee": 5.00,
+    "annual_fee": 0,
+    "chargeback_fee": 25,
+    "amex_optblue_tiers": [
+      { "max_annual_volume": 1000000, "rate_bps": 28 },
+      { "max_annual_volume": 3000000, "rate_bps": 22 },
+      { "max_annual_volume": null,    "rate_bps": 20 }
+    ],
+    "supported_business_types": ["restaurant", "retail", "services", "moto"],
+    "equipment": "leased_or_purchase",
+    "early_termination": 295,
+    "boarding_speed": "1_2_days",
+    "supports_high_risk": false
+  },
+  "priority": {
+    "name": "Priority Commerce",
+    "buy_rates": {
+      "visa_mc_present":     { "percent": 0.08, "per_txn": 0.08 },
+      "visa_mc_not_present": { "percent": 0.18, "per_txn": 0.12 },
+      "debit_pin":           { "percent": 0.05, "per_txn": 0.21 },
+      "debit_signature":     { "percent": 0.08, "per_txn": 0.08 },
+      "amex":                { "percent": 0.12, "per_txn": 0.08 },
+      "discover":            { "percent": 0.08, "per_txn": 0.08 }
+    },
+    "interchange_plus_bps": 8,
+    "per_txn_cents": 8,
+    "monthly_fee": 9.95,
+    "batch_fee": 0.25,
+    "avg_batch_size": 60,
+    "pci_fee": 7.95,
+    "statement_fee": 0,
+    "annual_fee": 0,
+    "chargeback_fee": 25,
+    "amex_optblue_tiers": [
+      { "max_annual_volume": 1000000, "rate_bps": 22 },
+      { "max_annual_volume": 3000000, "rate_bps": 18 },
+      { "max_annual_volume": null,    "rate_bps": 15 }
+    ],
+    "supported_business_types": ["restaurant", "retail", "services", "ecommerce"],
+    "equipment": "free_terminal",
+    "early_termination": 0,
+    "boarding_speed": "1_2_days",
+    "supports_high_risk": false
+  },
+  "paymentcloud": {
+    "name": "PaymentCloud",
+    "buy_rates": {
+      "visa_mc_present":     { "percent": 0.20, "per_txn": 0.10 },
+      "visa_mc_not_present": { "percent": 0.30, "per_txn": 0.15 },
+      "debit_pin":           { "percent": 0.10, "per_txn": 0.21 },
+      "debit_signature":     { "percent": 0.20, "per_txn": 0.10 },
+      "amex":                { "percent": 0.25, "per_txn": 0.10 },
+      "discover":            { "percent": 0.20, "per_txn": 0.10 }
+    },
+    "interchange_plus_bps": 20,
+    "per_txn_cents": 10,
+    "monthly_fee": 20.00,
+    "batch_fee": 0.00,
+    "avg_batch_size": 100,
+    "pci_fee": 14.95,
+    "statement_fee": 0,
+    "annual_fee": 0,
+    "chargeback_fee": 35,
+    "amex_optblue_tiers": [
+      { "max_annual_volume": 1000000, "rate_bps": 30 },
+      { "max_annual_volume": 3000000, "rate_bps": 25 },
+      { "max_annual_volume": null,    "rate_bps": 22 }
+    ],
+    "supported_business_types": ["restaurant", "retail", "services", "ecommerce", "moto", "high_risk"],
+    "equipment": "purchase",
+    "early_termination": 0,
+    "boarding_speed": "2_3_days",
+    "supports_high_risk": true
+  }
+}

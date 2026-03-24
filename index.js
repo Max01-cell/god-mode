@@ -240,6 +240,27 @@ fastify.get('/logs', async (_req, reply) => reply.send(callLogs));
 
 fastify.get('/leads', async (_req, reply) => reply.send([...leads.values()]));
 
+fastify.get('/analyze-rates/:leadId', async (req, reply) => {
+  const lead = leads.get(req.params.leadId);
+  if (!lead) return reply.status(404).send({ error: 'Lead not found' });
+  if (lead.analysisStatus === 'pending') {
+    return reply.status(202).send({ status: 'pending', message: 'Analysis still in progress' });
+  }
+  if (lead.analysisStatus === 'failed') {
+    return reply.status(422).send({ status: 'failed', error: lead.analysisError });
+  }
+  const { comparison, monthly_volume, total_fees, current_processor, effective_rate } = lead.savingsData ?? {};
+  return reply.send({
+    leadId: lead.id,
+    businessName: lead.businessName,
+    current_processor,
+    monthly_volume,
+    current_fees: total_fees,
+    effective_rate,
+    comparison: comparison ?? [],
+  });
+});
+
 // ── Statement upload + analysis ───────────────────────────────────────────────
 
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
