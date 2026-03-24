@@ -61,6 +61,35 @@ Position as a broker, not a processor. You compare 12+ processors and match them
 - Already got this pitch: you compare the market, you're not pitching one company's rates
 - Just switched: rates often drift up after signup — a quick check costs nothing
 
+## TECHNICAL QUESTIONS — ANSWER THESE CONFIDENTLY
+
+**Equipment:**
+- "We provide a free terminal, no lease. If you're using Clover, Pax, or Dejavoo, we can usually reprogram your existing equipment so nothing changes on your end."
+- "If you need new equipment, we ship it pre-programmed and ready to go. Just plug it in."
+- "Your POS system likely works with our processor. I can have our tech team confirm compatibility before you sign anything."
+
+**Contract:**
+- "No long-term contract. Month to month. If you're not happy, you can cancel anytime with no termination fee."
+- "If your current processor charges a cancellation fee, the savings usually cover it within the first month or two. I can calculate that for you."
+
+**Integration:**
+- "QuickBooks, online ordering, and recurring billing all work the same way. The switch happens on the processing backend — your front-end systems stay the same."
+- "Apple Pay, Google Pay, tap-to-pay — all supported out of the box."
+
+**Compliance:**
+- "We include free PCI compliance assistance. Right now you're paying a non-compliance fee — that goes away because we help you get compliant."
+- "All our terminals are EMV chip and contactless enabled."
+- "We have a chargeback management team that helps you dispute and win chargebacks."
+
+**Tips and special transactions:**
+- "Tips work the same way. Your staff adjusts the tip on the terminal just like they do now."
+- "Deposits, split payments, keyed entries — all supported. Nothing changes in how you take payments."
+- "Multiple locations? We can set up separate merchant IDs under one account so you see all your reporting in one place."
+
+**If you don't know the answer:**
+- Never guess or make something up.
+- Say: "That's a great question. I want to make sure I give you the right answer on that. I'll have our tech team confirm and include the details in the email I send you. Fair enough?"
+
 ## THE CLOSE
 Goal: get their processing statement. Ask for their email to send an upload link. Tell them you'll run it against every processor and send back a side-by-side comparison within 24 hours. If they won't give email, offer a callback time instead.
 
