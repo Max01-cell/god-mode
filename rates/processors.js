@@ -221,6 +221,98 @@ const processors = {
       "Residual advance available at Prime + 8-12% once earning $5k+/month",
     ],
   },
+  beacon: {
+    name: "Beacon Payments",
+    platforms: {
+      cardconnect: {
+        name: "CardConnect",
+        residual_split: 0.60,
+        costs: {
+          interchange: "pass_through",
+          bin_sponsorship_percent: 0.0001,       // 0.01%
+          auth_fee_bankcard: 0.03,
+          auth_fee_non_bankcard: 0.03,
+          pin_debit_ebt_per_txn: 0.03,
+          avs_fee: 0.03,
+          batch_fee: 0.03,
+          voice_auth: 0.75,
+          amex_optblue_interchange: "pass_through",
+          amex_optblue_bin_sponsorship: 0.001,   // 0.10%
+          monthly_minimum: 0,
+          statement_fee: 0,
+          transarmor_monthly: 5.00,
+          clover_platform_monthly: 5.00,
+          monthly_platform_fee: 5.00,
+        },
+      },
+      tsys_payarc: {
+        name: "TSYS Payarc",
+        residual_split: 0.60,
+        costs: {
+          interchange: "pass_through",
+          bin_sponsorship_percent: 0.0001,       // 0.01%
+          auth_fee: 0.03,
+          auth_fee_wireless: 0.10,
+          edc_transaction_fee: 0.00,
+          debit_ebt_per_item: 0.03,
+          amex_optblue: 0.001,                   // 0.10%
+          avs_fee: 0.03,
+          voice_auth: 0.55,
+          monthly_customer_service: 5.00,
+          monthly_statement_fee: 0,
+          monthly_tax_filing: 0,
+          debit_monthly_access: 0,
+          chargeback_fee: 10.00,
+          retrieval_fee: 7.50,
+          chargeback_arbitration: 25.00,
+          batch_close_fee: 0.03,
+          ach_unauthorized_return: 25.00,
+          pci_compliance_monthly: 5.59,
+          pci_non_validation_monthly: 29.95,     // after 60 days if not compliant
+          proactive_security_fee: 49.95,         // after 180 days if not compliant
+        },
+      },
+    },
+    bonuses: {
+      advance_per_account: 1000,    // paid after 2 closed batches
+      advance_reduced: 150,         // if missing $10 monthly fee or $30 minimum
+      multiplier: 8,                // 8x first month residual
+      multiplier_cap: 5000,
+      multiplier_floor: 150,
+      clawback_days: 365,
+      requires_monthly_fee: 10.00,
+      requires_monthly_minimum: 30.00,
+    },
+    flex_sell_pos: {
+      residual_split: 0.50,
+      no_bonus: true,
+      tiers_dual_pricing: [
+        { min_volume: 15000, max_volume: 25000, equipment: "Free Handheld or Mini POS" },
+        { min_volume: 25000, max_volume: 40000, equipment: "1 Free POS station" },
+        { min_volume: 40000, max_volume: 60000, equipment: "2 Free POS stations" },
+        { min_volume: 60000, max_volume: null,  equipment: "Approval required" },
+      ],
+    },
+    contract_term_years: 3,
+    non_exclusive: true,
+    residuals_survive_termination: true,
+    residual_minimum_threshold: 1000,
+    non_solicitation_penalty: "39x average monthly gross fees",
+    can_sell_book: true,
+    right_of_last_refusal: true,
+    notes: [
+      "60% residual split on CardConnect platform",
+      "$1,000 advance per activated account (2 closed batches required)",
+      "8x multiplier on first month residual, capped at $5,000",
+      "Advance reduced to $150 if merchant missing $10 monthly fee or $30 minimum",
+      "Flex Sell POS program at 50% split with free equipment but no bonus",
+      "BIN sponsorship at 0.01% — lowest of all three processors",
+      "Non-exclusive, 3-year term, residuals survive termination",
+      "Non-solicitation penalty: 39x average monthly gross fees per merchant",
+      "Supports Clover POS with $5/month platform fee",
+      "Alternative platform (TSYS/Payarc) available for different merchant types",
+    ],
+  },
 };
 
 export default processors;
