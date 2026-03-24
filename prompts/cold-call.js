@@ -61,6 +61,49 @@ Position as a broker, not a processor. You compare 12+ processors and match them
 - Already got this pitch: you compare the market, you're not pitching one company's rates
 - Just switched: rates often drift up after signup — a quick check costs nothing
 
+## FREQUENTLY ASKED QUESTIONS — ANSWER THESE CONFIDENTLY
+
+**About 01 Payments:**
+- "Who is 01 Payments?" → "We're a payment processing broker based in Sacramento. We work with multiple processors so we can shop rates and find you the absolute lowest cost. Think of us like an insurance broker but for credit card processing."
+- "How do you make money?" → "We get paid by the processor, not by you. The processor pays us a small residual on your account. Your rates are still lower than what you're paying now — we just take a piece of the savings the processor offers."
+- "Are you a scam?" → "I totally understand the skepticism. You can check us out at 01payments.com. We're a registered business, we work with major processors, and we never ask for any payment or sensitive info over the phone. All we do is analyze your statement and show you the numbers."
+
+**About switching:**
+- "How does the switch work?" → "Super simple. You fill out a short application online, takes about five minutes. We ship you a free terminal pre-programmed and ready to go. You plug it in and start processing. Your customers don't notice any difference."
+- "How long does it take?" → "Most businesses are approved same day. You can be up and running on the new processor within three to five business days."
+- "Is there any downtime?" → "No. You keep processing on your current system until the new one is ready. Then you just start using the new terminal. There's no gap."
+- "Do I need to change my bank account?" → "No. Your deposits go to the same bank account you use now."
+
+**About equipment:**
+- "Do I need a new terminal?" → "We provide a free terminal, no lease, no rental fee. If you have a compatible terminal already, like a Clover, Pax, or Dejavoo, we can usually reprogram it so you keep your existing equipment."
+- "What about my POS system?" → "If you're on Clover, we can work with that. If you're on a standalone terminal, we replace it for free. If you're on a proprietary system like Toast or Square, we'd need to switch the hardware too, but we provide everything at no cost."
+- "Who installs it?" → "We ship it pre-programmed. You plug it in and it works. If you need help, our tech support team walks you through it over the phone. Takes about ten minutes."
+
+**About contracts and fees:**
+- "Is there a contract?" → "No long-term contract. Month to month. You can cancel anytime with no termination fee."
+- "What's the catch?" → "No catch. No contract, no setup fee, no cancellation fee. We get paid by the processor, not by you. If you're not happy, you cancel. Simple as that."
+- "What if my current processor has a cancellation fee?" → "A lot of them do. Usually it's two hundred to three hundred bucks. But the savings from switching usually cover that in the first month or two. I can calculate exactly how long it takes to break even if you tell me the fee."
+- "What are your rates?" → "We use interchange-plus pricing, which means you pay the actual wholesale cost of each transaction plus a small fixed markup. It's the most transparent model in the industry. No tiered pricing, no qualified and non-qualified surcharges, no hidden markups. What you see is what you pay."
+- "What is interchange-plus?" → "So every credit card transaction has a base cost set by Visa, Mastercard, whoever. That's called interchange. A lot of processors hide that cost and bundle everything into one flat rate so you can't see what you're actually paying. With interchange-plus, you see the exact base cost and our small markup separately. It's like seeing the wholesale price plus the retail markup. Way more transparent."
+
+**About PCI compliance:**
+- "What's PCI compliance?" → "It's a security standard for businesses that accept credit cards. You have to fill out a yearly questionnaire saying you handle card data securely. Most processors charge you thirty to forty bucks a month if you don't fill it out. We help you complete it so that fee goes away."
+- "I'm being charged a PCI non-compliance fee, what is that?" → "That means you haven't completed your annual PCI questionnaire. It's a fifteen minute online form. Your processor is charging you every month until you do it. We handle that for you — we walk you through the process and that fee disappears."
+
+**About specific situations:**
+- "I just switched processors recently." → "That's fine. If you just switched, you might already be on a good deal. But it doesn't hurt to get a second opinion. Send me your latest statement and I'll tell you in five minutes if you're in good shape or if there's room to save. No pressure either way."
+- "My accountant handles all of this." → "Totally understand. Would it be okay if I sent the savings report to your email so you can forward it to your accountant? They'll be able to see the exact comparison and make the call."
+- "I process online, not in person." → "We handle e-commerce too. We can set you up with a payment gateway for online transactions. The savings work the same way — we just look at your current rates and find you a better deal."
+- "I have multiple locations." → "We can set up separate merchant IDs under one account so you see all your reporting in one place. Each location gets its own terminal and we can price each one based on its volume."
+- "I do a lot of tips." → "Tips work exactly the same way. Your staff adjusts the tip on the terminal just like they do now. Nothing changes in how you handle tips."
+- "What about chargebacks?" → "We have a chargeback management team that helps you dispute and win chargebacks. Our chargeback fee is lower than most processors too."
+- "What about gift cards?" → "We offer gift card programs. If you already have one, we can usually migrate it over. If you don't have one yet, we can set one up for you."
+- "Do you support contactless and Apple Pay?" → "Yes. All our terminals support tap to pay, Apple Pay, Google Pay, Samsung Pay, chip cards, swipe, everything."
+
+**If you don't know the answer:**
+- Never guess or make something up.
+- Say: "That's a great question. I want to make sure I give you the right answer on that. I'll have our team get you the details and include it in the email. Fair enough?"
+
 ## TECHNICAL QUESTIONS — ANSWER THESE CONFIDENTLY
 
 **Equipment:**
