@@ -8,9 +8,10 @@ import WebSocket from 'ws';
 import twilio from 'twilio';
 import { buildColdCallPrompt } from './prompts/cold-call.js';
 import { buildFollowUpPrompt } from './prompts/follow-up.js';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
+import { mkdir, writeFile, readFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, extname } from 'path';
 import alawmulaw from 'alawmulaw';
 import { createLead, updateLead, leads } from './lib/leads-store.js';
 import { analyzeStatement } from './lib/analyze-statement.js';
@@ -48,6 +49,11 @@ function mixBackground(base64Chunk, bgCursor) {
     nextCursor: (bgCursor + len) % bgRaw.length,
   };
 }
+
+const UPLOADS_DIR = join(__dirname, 'uploads');
+await mkdir(UPLOADS_DIR, { recursive: true });
+
+const DASHBOARD_KEY = process.env.DASHBOARD_KEY ?? '01payments';
 
 const {
   OPENAI_API_KEY,
@@ -261,6 +267,93 @@ fastify.get('/analyze-rates/:leadId', async (req, reply) => {
   });
 });
 
+// ── File serving ─────────────────────────────────────────────────────────────
+
+const MIME_MAP = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+
+fastify.get('/uploads/:filename', async (req, reply) => {
+  if (req.query.key !== DASHBOARD_KEY) return reply.status(401).send('Unauthorized');
+  const filename = req.params.filename.replace(/\.\./g, ''); // prevent path traversal
+  const filePath = join(UPLOADS_DIR, filename);
+  if (!existsSync(filePath)) return reply.status(404).send('Not found');
+  const ext = extname(filename).toLowerCase();
+  const contentType = MIME_MAP[ext] ?? 'application/octet-stream';
+  const data = await readFile(filePath);
+  reply.type(contentType).send(data);
+});
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+fastify.get('/dashboard', async (req, reply) => {
+  if (req.query.key !== DASHBOARD_KEY) return reply.status(401).send('Unauthorized');
+
+  const fmt = (n) => n != null ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—';
+  const allLeads = [...leads.values()].sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
+
+  const rows = allLeads.map(lead => {
+    const sd = lead.savingsData;
+    const fileLink = lead.uploadFilename
+      ? `<a href="/uploads/${lead.uploadFilename}?key=${DASHBOARD_KEY}" target="_blank">View File</a>`
+      : '—';
+    const statusBadge = {
+      pending:  '<span style="color:#f39c12;">⏳ Pending</span>',
+      complete: '<span style="color:#27ae60;">✓ Complete</span>',
+      failed:   '<span style="color:#e74c3c;">✗ Failed</span>',
+    }[lead.analysisStatus] ?? lead.analysisStatus;
+
+    const savings = sd ? `
+      <small>
+        ${sd.current_processor ?? '—'} →
+        ${fmt(sd.total_fees)}/mo current &nbsp;|&nbsp;
+        Save ${fmt(sd.monthly_savings)}/mo &nbsp;|&nbsp;
+        ${fmt(sd.annual_savings)}/yr
+      </small>` : (lead.analysisError ? `<small style="color:#e74c3c;">${lead.analysisError}</small>` : '');
+
+    return `<tr>
+      <td>${new Date(lead.submittedAt).toLocaleString()}</td>
+      <td>${lead.fullName}</td>
+      <td>${lead.businessName}</td>
+      <td>${lead.phone}</td>
+      <td><a href="mailto:${lead.email}">${lead.email}</a></td>
+      <td>${fileLink}</td>
+      <td>${statusBadge}${savings}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>01 Payments — Lead Dashboard</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f6f7fb; color: #1a1a1a; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    p.sub { color: #888; font-size: 13px; margin: 0 0 24px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,.08); font-size: 13px; }
+    th { padding: 10px 14px; text-align: left; background: #f9f9f9; color: #999; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #f0f0f0; }
+    td { padding: 12px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    a { color: #0a0a0a; }
+    small { display: block; margin-top: 4px; color: #888; }
+  </style>
+</head>
+<body>
+  <h1>01 Payments — Lead Dashboard</h1>
+  <p class="sub">${allLeads.length} lead${allLeads.length !== 1 ? 's' : ''} total</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Submitted</th><th>Name</th><th>Business</th><th>Phone</th><th>Email</th><th>Statement</th><th>Analysis</th>
+      </tr>
+    </thead>
+    <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:40px;">No leads yet</td></tr>'}</tbody>
+  </table>
+</body>
+</html>`;
+
+  reply.type('text/html').send(html);
+});
+
 // ── Statement upload + analysis ───────────────────────────────────────────────
 
 const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg']);
@@ -309,11 +402,15 @@ fastify.post('/submit-statement', async (req, reply) => {
   }
 
   // 1. Save lead
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
   const lead = createLead({ fullName, businessName, phone, email, fileName, fileSize: fileBuffer.length, fileType });
-  fastify.log.info('[submit-statement] new lead %s — %s (%s)', lead.id, businessName, email);
+  const uploadFilename = `${lead.id}-${safeFileName}`;
+  await writeFile(join(UPLOADS_DIR, uploadFilename), fileBuffer);
+  updateLead(lead.id, { uploadFilename });
+  fastify.log.info('[submit-statement] new lead %s — %s (%s) — saved as %s', lead.id, businessName, email, uploadFilename);
 
   // 2. Notify owner immediately (don't await — don't block the response)
-  sendOwnerNotification(lead).catch((err) =>
+  sendOwnerNotification({ ...lead, uploadFilename }).catch((err) =>
     fastify.log.error('[email] owner notification failed: %s', err.message)
   );
 
