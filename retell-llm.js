@@ -20,9 +20,10 @@ const PING_PONG = "ping_pong";
 
 export function registerRetellLLM(fastify) {
   fastify.get("/retell-llm/*", { websocket: true }, (socket, req) => {
-    console.log("[Retell] Custom LLM connection opened");
+    console.log("[Retell] Custom LLM connection opened — url:", req.url);
 
     socket.on("message", async (raw) => {
+      console.log("[Retell] Raw message:", raw.toString().substring(0, 300));
       let msg;
       try {
         msg = JSON.parse(raw.toString());
