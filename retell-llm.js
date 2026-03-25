@@ -88,6 +88,7 @@ async function handleLLMResponse(socket, msg) {
     });
 
     let buffer = "";
+    let pending = "";
 
     for await (const chunk of stream) {
       if (
@@ -96,13 +97,29 @@ async function handleLLMResponse(socket, msg) {
       ) {
         const text = chunk.delta.text;
         buffer += text;
-        socket.send(JSON.stringify({
-          response_type: "response",
-          response_id: msg.response_id,
-          content: text,
-          content_complete: false,
-        }));
+        pending += text;
+
+        // Flush at sentence/clause boundaries so TTS gets complete phrases
+        if (/[.!?,;]/.test(text)) {
+          socket.send(JSON.stringify({
+            response_type: "response",
+            response_id: msg.response_id,
+            content: pending,
+            content_complete: false,
+          }));
+          pending = "";
+        }
       }
+    }
+
+    // Flush any remaining text
+    if (pending) {
+      socket.send(JSON.stringify({
+        response_type: "response",
+        response_id: msg.response_id,
+        content: pending,
+        content_complete: false,
+      }));
     }
 
     socket.send(JSON.stringify({
