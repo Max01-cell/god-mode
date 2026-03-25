@@ -95,8 +95,8 @@ async function handleLLMResponse(socket, msg) {
 
   try {
     const stream = await anthropic.messages.stream({
-      model: "claude-sonnet-4-5",
-      max_tokens: 300,
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 150,
       system: systemPrompt,
       messages: messages.length > 0 ? messages : [{ role: "user", content: "Hello?" }],
     });
