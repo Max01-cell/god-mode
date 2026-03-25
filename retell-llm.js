@@ -102,44 +102,24 @@ async function handleLLMResponse(socket, msg) {
 
   try {
     console.log("Calling Claude API with " + messages.length + " messages");
-    const stream = await anthropic.messages.stream({
+    const response = await anthropic.messages.create({
       model: "claude-opus-4-5",
       max_tokens: 300,         // Keep responses tight for phone conversation
       system: systemPrompt,
       messages,
     });
 
-    let buffer = "";
+    const text = response.content.find(b => b.type === "text")?.text ?? "";
 
-    for await (const chunk of stream) {
-      if (
-        chunk.type === "content_block_delta" &&
-        chunk.delta?.type === "text_delta"
-      ) {
-        const text = chunk.delta.text;
-        buffer += text;
-
-        // Stream chunks back to Retell as they arrive
-        socket.send(
-          JSON.stringify({
-            response_id: responseId,
-            content: text,
-            content_complete: false,
-          })
-        );
-      }
-    }
-
-    // Signal end of response
     socket.send(
       JSON.stringify({
         response_id: responseId,
-        content: "",
+        content: text,
         content_complete: true,
       })
     );
 
-    console.log(`[Retell] Response sent (${buffer.length} chars)`);
+    console.log(`[Retell] Response sent (${text.length} chars)`);
   } catch (err) {
     console.error("[Retell] Claude API error:", err);
 
