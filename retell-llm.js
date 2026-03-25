@@ -42,6 +42,7 @@ export function registerRetellLLM(fastify) {
 
         socket.send(JSON.stringify({
           response_type: "response",
+          response_id: msg.response_id,
           content: opener,
           content_complete: true,
         }));
@@ -111,6 +112,7 @@ async function handleLLMResponse(socket, msg) {
         buffer += text;
         socket.send(JSON.stringify({
           response_type: "response",
+          response_id: msg.response_id,
           content: text,
           content_complete: false,
         }));
@@ -119,6 +121,7 @@ async function handleLLMResponse(socket, msg) {
 
     socket.send(JSON.stringify({
       response_type: "response",
+      response_id: msg.response_id,
       content: "",
       content_complete: true,
     }));
@@ -128,6 +131,7 @@ async function handleLLMResponse(socket, msg) {
     console.error("[Retell] Claude API error:", err);
     socket.send(JSON.stringify({
       response_type: "response",
+      response_id: msg.response_id,
       content: "Sorry, give me just one second.",
       content_complete: true,
     }));
