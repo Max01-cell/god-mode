@@ -19,48 +19,51 @@ const PING_PONG = "ping_pong";
 //   registerRetellLLM(fastify)
 
 export function registerRetellLLM(fastify) {
-  fastify.get("/retell-llm/*", { websocket: true }, (socket, req) => {
-    console.log("[Retell] Custom LLM connection opened — url:", req.url);
+  fastify.register(async (app) => {
+    app.get("/retell-llm/*", { websocket: true }, (connection, req) => {
+      const socket = connection.socket;
+      console.log("[Retell] Custom LLM connection opened — url:", req.url);
 
-    socket.on("message", async (raw) => {
-      console.log("[Retell] Raw message:", raw.toString().substring(0, 300));
-      let msg;
-      try {
-        msg = JSON.parse(raw.toString());
-      } catch {
-        console.error("[Retell] Failed to parse message");
-        return;
-      }
+      socket.on("message", async (raw) => {
+        console.log("[Retell] Raw message:", raw.toString().substring(0, 300));
+        let msg;
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch {
+          console.error("[Retell] Failed to parse message");
+          return;
+        }
 
-      // ── Ping / pong keepalive ───────────────────────────────────────────
-      if (msg.interaction_type === PING_PONG) {
-        socket.send(JSON.stringify({ response_type: "ping_pong", timestamp: msg.timestamp }));
-        return;
-      }
+        // ── Ping / pong keepalive ───────────────────────────────────────────
+        if (msg.interaction_type === PING_PONG) {
+          socket.send(JSON.stringify({ response_type: "ping_pong", timestamp: msg.timestamp }));
+          return;
+        }
 
-      // ── Call started — optional hook for setup logic ────────────────────
-      if (msg.interaction_type === CALL_STARTED) {
-        console.log("[Retell] Call started:", msg.call?.call_id);
-        return;
-      }
+        // ── Call started — optional hook for setup logic ────────────────────
+        if (msg.interaction_type === CALL_STARTED) {
+          console.log("[Retell] Call started:", msg.call?.call_id);
+          return;
+        }
 
-      // ── Call ended — cleanup if needed ─────────────────────────────────
-      if (msg.interaction_type === CALL_ENDED) {
-        console.log("[Retell] Call ended:", msg.call?.call_id);
-        return;
-      }
+        // ── Call ended — cleanup if needed ─────────────────────────────────
+        if (msg.interaction_type === CALL_ENDED) {
+          console.log("[Retell] Call ended:", msg.call?.call_id);
+          return;
+        }
 
-      // ── LLM response required ──────────────────────────────────────────
-      if (
-        msg.interaction_type === RESPONSE_REQUIRED ||
-        msg.interaction_type === REMINDER_REQUIRED
-      ) {
-        await handleLLMResponse(socket, msg);
-      }
+        // ── LLM response required ──────────────────────────────────────────
+        if (
+          msg.interaction_type === RESPONSE_REQUIRED ||
+          msg.interaction_type === REMINDER_REQUIRED
+        ) {
+          await handleLLMResponse(socket, msg);
+        }
+      });
+
+      socket.on("close", (code, reason) => console.log("[Retell] Connection closed — code:", code, "reason:", reason?.toString()));
+      socket.on("error", (err) => console.error("[Retell] WebSocket error:", err));
     });
-
-    socket.on("close", (code, reason) => console.log("[Retell] Connection closed — code:", code, "reason:", reason?.toString()));
-    socket.on("error", (err) => console.error("[Retell] WebSocket error:", err));
   });
 }
 
