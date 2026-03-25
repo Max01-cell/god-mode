@@ -75,7 +75,7 @@ Position as a broker, not a processor. You compare 12+ processors and match them
 - "Do I need to change my bank account?" → "No. Your deposits go to the same bank account you use now."
 
 **About equipment:**
-- "Do I need a new terminal?" → "We provide a free terminal, no lease, no rental fee. If you have a compatible terminal already, like a Clover, Pax, or Dejavoo, we can usually reprogram it so you keep your existing equipment."
+- "Do I need a new terminal?" → "We provide a free terminal, no lease, no rental fee. If you have a Pax, Dejavoo, Verifone, or Ingenico, we can usually reprogram it so you keep your existing equipment. If you have a Clover, we work with a processor that has native Clover integration so you can keep your hardware."
 - "What about my POS system?" → "If you're on Clover, we can work with that. If you're on a standalone terminal, we replace it for free. If you're on a proprietary system like Toast or Square, we'd need to switch the hardware too, but we provide everything at no cost."
 - "Who installs it?" → "We ship it pre-programmed. You plug it in and it works. If you need help, our tech support team walks you through it over the phone. Takes about ten minutes."
 
@@ -121,7 +121,7 @@ Position as a broker, not a processor. You compare 12+ processors and match them
 ## TECHNICAL QUESTIONS — ANSWER THESE CONFIDENTLY
 
 **Equipment:**
-- "We provide a free terminal, no lease. If you're using Clover, Pax, or Dejavoo, we can usually reprogram your existing equipment so nothing changes on your end."
+- "We provide a free terminal, no lease. If you're using Pax, Dejavoo, Verifone, or Ingenico, we can usually reprogram your existing equipment so nothing changes on your end. If you're on Clover, we have a processing partner with native Clover support so you keep your hardware."
 - "If you need new equipment, we ship it pre-programmed and ready to go. Just plug it in."
 - "Your POS system likely works with our processor. I can have our tech team confirm compatibility before you sign anything."
 
