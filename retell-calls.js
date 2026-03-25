@@ -67,7 +67,7 @@ export function registerRetellCalls(fastify) {
     console.log(`[Retell Webhook] event: ${event.event} | call_id: ${event.data?.call_id}`);
 
     if (event.event === "call_ended") {
-      const { call_id, transcript, call_analysis, metadata } = event.data;
+      const { call_id, transcript, call_analysis, metadata } = event.data || event;
       // TODO: save transcript + analysis to your lead record
       // transcript is full text, call_analysis has sentiment/summary
       console.log(`[Retell] Call ended — transcript length: ${transcript?.length || 0} chars`);
