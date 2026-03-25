@@ -79,6 +79,8 @@ async function handleLLMResponse(socket, msg) {
   // Convert Retell transcript format → Anthropic messages format
   // Retell: [{ role: "agent"|"user", content: "..." }]
   // Anthropic: [{ role: "assistant"|"user", content: "..." }]
+  const responseId = msg.response_id;
+
   const messages = convertTranscript(transcript);
 
   // If it's a reminder (agent needs to fill silence), append a nudge
@@ -86,6 +88,14 @@ async function handleLLMResponse(socket, msg) {
     messages.push({
       role: "user",
       content: "[The prospect has been silent. Continue naturally — ask a gentle follow-up or briefly reiterate your last point.]",
+    });
+  }
+
+  // Claude requires at least one message — seed first turn with an open prompt
+  if (messages.length === 0) {
+    messages.push({
+      role: "user",
+      content: "[Start the call — introduce yourself as Alex from 01 Payments and state your reason for calling.]",
     });
   }
 
@@ -111,7 +121,7 @@ async function handleLLMResponse(socket, msg) {
         // Stream chunks back to Retell as they arrive
         socket.send(
           JSON.stringify({
-            response_type: "response",
+            response_id: responseId,
             content: text,
             content_complete: false,
           })
@@ -122,7 +132,7 @@ async function handleLLMResponse(socket, msg) {
     // Signal end of response
     socket.send(
       JSON.stringify({
-        response_type: "response",
+        response_id: responseId,
         content: "",
         content_complete: true,
       })
@@ -135,7 +145,7 @@ async function handleLLMResponse(socket, msg) {
     // Graceful fallback — agent stays in character
     socket.send(
       JSON.stringify({
-        response_type: "response",
+        response_id: responseId,
         content: "Sorry, can you give me just one second?",
         content_complete: true,
       })
