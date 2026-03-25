@@ -6,134 +6,130 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// ─── Retell interaction types ─────────────────────────────────────────────────
-const RESPONSE_REQUIRED = "response_required";
-const REMINDER_REQUIRED = "reminder_required";
-const CALL_STARTED = "call_started";
-const CALL_ENDED = "call_ended";
-const PING_PONG = "ping_pong";
-
-// ─── Register route on your Fastify instance ─────────────────────────────────
-// Call this in your main server file:
-//   import { registerRetellLLM } from './retell-llm.js'
-//   registerRetellLLM(fastify)
-
 export function registerRetellLLM(fastify) {
-  fastify.register(async (app) => {
-    app.get("/retell-llm/*", { websocket: true }, (connection, req) => {
-      const socket = connection.socket;
-      console.log("[Retell] Custom LLM connection opened — url:", req.url);
+  // Register on base path AND with callId param — Retell appends call ID to URL
+  const handler = (socket, req) => {
+    console.log("[Retell] Custom LLM connection opened — url:", req.url);
 
-      socket.on("message", async (raw) => {
-        console.log("[Retell] Raw message:", raw.toString().substring(0, 300));
-        let msg;
-        try {
-          msg = JSON.parse(raw.toString());
-        } catch {
-          console.error("[Retell] Failed to parse message");
-          return;
-        }
+    socket.on("message", async (raw) => {
+      let msg;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch {
+        console.error("[Retell] Failed to parse message");
+        return;
+      }
 
-        // ── Ping / pong keepalive ───────────────────────────────────────────
-        if (msg.interaction_type === PING_PONG) {
-          socket.send(JSON.stringify({ response_type: "ping_pong", timestamp: msg.timestamp }));
-          return;
-        }
+      console.log("[Retell] Raw message type:", msg.interaction_type);
 
-        // ── Call started — optional hook for setup logic ────────────────────
-        if (msg.interaction_type === CALL_STARTED) {
-          console.log("[Retell] Call started:", msg.call?.call_id);
-          return;
-        }
+      // Ping / pong keepalive
+      if (msg.interaction_type === "ping_pong") {
+        socket.send(JSON.stringify({ response_type: "ping_pong", timestamp: msg.timestamp }));
+        return;
+      }
 
-        // ── Call ended — cleanup if needed ─────────────────────────────────
-        if (msg.interaction_type === CALL_ENDED) {
-          console.log("[Retell] Call ended:", msg.call?.call_id);
-          return;
-        }
+      // Call started — Alex speaks first
+      if (msg.interaction_type === "call_started") {
+        console.log("[Retell] Call started:", msg.call?.call_id);
+        const metadata = msg.call?.metadata || {};
+        const businessData = metadata.businessData || {};
+        const ownerName = businessData.ownerName || "";
 
-        // ── LLM response required ──────────────────────────────────────────
-        if (
-          msg.interaction_type === RESPONSE_REQUIRED ||
-          msg.interaction_type === REMINDER_REQUIRED
-        ) {
-          await handleLLMResponse(socket, msg);
-        }
-      });
+        const opener = ownerName
+          ? `Hi, is this ${ownerName}? This is Alex calling from zero one payments — do you have about sixty seconds?`
+          : `Hi there, this is Alex calling from zero one payments — do you have about sixty seconds?`;
 
-      socket.on("close", (code, reason) => console.log("[Retell] Connection closed — code:", code, "reason:", reason?.toString()));
-      socket.on("error", (err) => console.error("[Retell] WebSocket error:", err));
+        socket.send(JSON.stringify({
+          response_type: "response",
+          content: opener,
+          content_complete: true,
+        }));
+        return;
+      }
+
+      // Call ended
+      if (msg.interaction_type === "call_ended") {
+        console.log("[Retell] Call ended:", msg.call?.call_id);
+        return;
+      }
+
+      // LLM response required or reminder
+      if (
+        msg.interaction_type === "response_required" ||
+        msg.interaction_type === "reminder_required"
+      ) {
+        await handleLLMResponse(socket, msg);
+      }
     });
-  });
+
+    socket.on("close", () => console.log("[Retell] Connection closed"));
+    socket.on("error", (err) => console.error("[Retell] WebSocket error:", err));
+  };
+
+  fastify.get("/retell-llm", { websocket: true }, handler);
+  fastify.get("/retell-llm/:callId", { websocket: true }, handler);
 }
 
 // ─── Core LLM handler ─────────────────────────────────────────────────────────
 async function handleLLMResponse(socket, msg) {
-  console.log("LLM handler called, interaction type: " + msg.interaction_type);
   const { transcript, call } = msg;
   const metadata = call?.metadata || {};
-
-  // Determine call type from metadata (set when you trigger outbound call)
   const callType = metadata.callType || "cold_call";
   const businessData = metadata.businessData || {};
 
-  // Build system prompt based on call type
+  console.log(`[Retell] LLM handler called — type: ${msg.interaction_type} | callType: ${callType}`);
+
   const systemPrompt = buildSystemPrompt(callType, businessData);
-
-  // Convert Retell transcript format → Anthropic messages format
-  // Retell: [{ role: "agent"|"user", content: "..." }]
-  // Anthropic: [{ role: "assistant"|"user", content: "..." }]
-  const responseId = msg.response_id;
-
   const messages = convertTranscript(transcript);
 
-  // If it's a reminder (agent needs to fill silence), append a nudge
-  if (msg.interaction_type === REMINDER_REQUIRED) {
+  if (msg.interaction_type === "reminder_required") {
     messages.push({
       role: "user",
-      content: "[The prospect has been silent. Continue naturally — ask a gentle follow-up or briefly reiterate your last point.]",
+      content: "[Silence on the line. Continue naturally — ask a gentle follow-up or briefly reiterate your last point in one sentence.]",
     });
   }
 
-  // Claude requires at least one message — seed first turn with an open prompt
-  if (messages.length === 0) {
-    messages.push({
-      role: "user",
-      content: "[Start the call — introduce yourself as Alex from 01 Payments and state your reason for calling.]",
-    });
-  }
+  console.log(`[Retell] Calling Claude with ${messages.length} messages`);
 
   try {
-    console.log("Calling Claude API with " + messages.length + " messages");
-    const response = await anthropic.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 300,         // Keep responses tight for phone conversation
+    const stream = await anthropic.messages.stream({
+      model: "claude-sonnet-4-5",
+      max_tokens: 300,
       system: systemPrompt,
-      messages,
+      messages: messages.length > 0 ? messages : [{ role: "user", content: "Hello?" }],
     });
 
-    const text = response.content.find(b => b.type === "text")?.text ?? "";
+    let buffer = "";
 
-    socket.send(
-      JSON.stringify({
-        response_id: responseId,
-        content: text,
-        content_complete: true,
-      })
-    );
+    for await (const chunk of stream) {
+      if (
+        chunk.type === "content_block_delta" &&
+        chunk.delta?.type === "text_delta"
+      ) {
+        const text = chunk.delta.text;
+        buffer += text;
+        socket.send(JSON.stringify({
+          response_type: "response",
+          content: text,
+          content_complete: false,
+        }));
+      }
+    }
 
-    console.log(`[Retell] Response sent (${text.length} chars)`);
+    socket.send(JSON.stringify({
+      response_type: "response",
+      content: "",
+      content_complete: true,
+    }));
+
+    console.log(`[Retell] Response sent (${buffer.length} chars): ${buffer.slice(0, 80)}...`);
   } catch (err) {
     console.error("[Retell] Claude API error:", err);
-
-    // Graceful fallback — agent stays in character
-    socket.send(
-      JSON.stringify({
-        response_id: responseId,
-        content: "Sorry, can you give me just one second?",
-        content_complete: true,
-      })
-    );
+    socket.send(JSON.stringify({
+      response_type: "response",
+      content: "Sorry, give me just one second.",
+      content_complete: true,
+    }));
   }
 }
 
@@ -149,27 +145,50 @@ function convertTranscript(transcript = []) {
 
 // ─── System prompt builder ────────────────────────────────────────────────────
 function buildSystemPrompt(callType, businessData) {
-  const base = `You are Alex, a payment consultant calling on behalf of 01 Payments.
-Your number is (916) 661-4050.
+  const posSystem = businessData.posSystem || "";
 
-CORE RULES:
-- You are on a LIVE PHONE CALL. Be natural, concise, conversational.
-- Max 2-3 sentences per response unless directly asked a question.
+  // Determine POS compatibility
+  const lockedPOS = ["Toast", "Shopify", "Square", "SpotOn", "Lightspeed", "NCR", "Micros", "Heartland", "Revel"];
+  const cloverPOS = ["Clover"];
+  const reprogrammablePOS = ["Pax", "Dejavoo", "Verifone", "Ingenico"];
+
+  const isLocked = lockedPOS.some(p => posSystem.toLowerCase().includes(p.toLowerCase()));
+  const isClover = cloverPOS.some(p => posSystem.toLowerCase().includes(p.toLowerCase()));
+  const isReprogrammable = reprogrammablePOS.some(p => posSystem.toLowerCase().includes(p.toLowerCase()));
+
+  let posNote = "";
+  if (isClover) {
+    posNote = `They use Clover — reassure them we work with Clover natively through our Beacon processor, no hardware change needed.`;
+  } else if (isLocked) {
+    posNote = `They use ${posSystem} which is a locked system. Focus only on processing fee savings, not hardware. Do not promise they can keep their exact setup without switching hardware.`;
+  } else if (isReprogrammable) {
+    posNote = `They use ${posSystem} which can be reprogrammed — no hardware purchase needed, we just reprogram their existing terminal.`;
+  } else if (posSystem) {
+    posNote = `They use ${posSystem}. Focus on processing fee savings. Hardware compatibility will be confirmed during the statement review.`;
+  }
+
+  const base = `You are Alex, a payment consultant calling on behalf of zero one payments.
+Your phone number is 916-661-4050.
+
+CRITICAL RULES — PHONE CALL:
+- You are on a LIVE PHONE CALL. Be natural, conversational, human.
+- Max 2-3 short sentences per response. Never monologue.
 - Never read from a script. React to what the prospect says.
-- Never mention AI, robot, automated system, or recording.
-- If they ask if you're AI: "No, I'm Alex — just calling from 01 Payments."
-- Your goal: qualify them and get them to email their processing statement.
-- We get paid by processors, not the merchant. Free service for the business.
-- Lead with trust, not savings numbers. The pitch is: zero downtime, no contract risk, only stay if you save, we handle everything.
-- Do NOT oversell. If they're not a fit, end gracefully.
+- Never mention AI, bot, automated, or recording.
+- If asked if you're AI or a robot: say "No, I'm Alex — just calling from zero one payments."
+- Always say "zero one payments" never "01 payments".
+- Never say dollar signs — say "dollars" out loud.
 
-ABOUT 01 PAYMENTS:
-- ISO broker — we shop rates across multiple processors
-- We do a free analysis of their current statement and find the best rate available
-- Zero downtime switching — they never lose a day of processing
-- No contract risk — they only stay if they're actually saving money
-- We handle all the paperwork and setup
-- No cost, no obligation, no pressure`;
+ABOUT ZERO ONE PAYMENTS:
+- We are an ISO broker — we shop rates across multiple processors
+- We audit the merchant's current processing statement and find them a lower rate
+- Merchants typically save 15 to 30 percent on processing fees
+- Completely free service for the merchant — processors pay us, not you
+- No obligation to switch after the audit
+
+${posNote}
+
+GOAL: Qualify them and get them to email their processing statement to alex@01payments.com`;
 
   if (callType === "cold_call") {
     return `${base}
@@ -179,42 +198,44 @@ ${businessData.businessName ? `BUSINESS: ${businessData.businessName}` : ""}
 ${businessData.ownerName ? `CONTACT: ${businessData.ownerName}` : ""}
 ${businessData.posSystem ? `POS SYSTEM: ${businessData.posSystem}` : ""}
 
-OPENER STRATEGY:
-- Open by stating your reason for calling IMMEDIATELY on the first response — do not wait to be asked.
-- Lead with trust, not savings numbers: "Hey [name], calling from 01 Payments — we help businesses switch processors with zero downtime, no contract risk, and you only stay if you're actually saving money. We handle everything. I just wanted to see if you'd be open to a free review."
-- If you know their POS: "A lot of [POS] users we work with didn't realize they could switch without any disruption to their setup."
-- Do NOT mention specific savings percentages on the opener — lead with the risk-free process instead
-- After the opener, qualify: ask roughly how much they process per month in cards
-- Then pivot: offer a free statement review — just email it to alex@01payments.com
+FLOW:
+1. Confirm you have the right person
+2. One sentence pitch: free audit, find out if they're overpaying on card processing
+3. Qualify: roughly how much do they process per month in cards?
+4. If over 25k/month: ask them to email their statement to alex@01payments.com
+5. If under 10k/month: politely exit — "Honestly at that volume it might not be worth the paperwork for you, but keep us in mind as you grow"
 
-QUALIFICATION CRITERIA (good fit):
-- $25k+ per month card volume
-- On flat rate (Square/Stripe) OR tiered pricing
-- Open to a quick review — no commitment
+OBJECTION HANDLING:
+- "Not interested": "Totally fair — can I ask, do you know roughly what you're paying per transaction right now?"
+- "I already have a processor": "That's great — we're not asking you to switch, just a free second opinion on your rates. Takes about 60 seconds to send the statement."
+- "Send me something in writing": "Absolutely — what's the best email? I'll send our one-pager over."
+- "Who are you again?": "Alex from zero one payments — we do free rate audits for businesses to make sure they're not overpaying on card processing."
 
 EXIT GRACEFULLY if:
-- Under $10k/month ("Honestly might not be worth the paperwork for you")
-- Locked into a long-term contract with heavy cancellation fees
-- Chain or franchise with centralized payment decisions`;
+- Under 10k/month volume
+- Hostile or clearly not interested after two attempts`;
   }
 
   if (callType === "follow_up") {
     return `${base}
 
-CALL TYPE: Follow-up — prospect already submitted a statement or showed interest
+CALL TYPE: Follow-up — prospect submitted a statement or showed prior interest
 ${businessData.businessName ? `BUSINESS: ${businessData.businessName}` : ""}
 ${businessData.ownerName ? `CONTACT: ${businessData.ownerName}` : ""}
-${businessData.monthlySavings ? `ESTIMATED MONTHLY SAVINGS: ${businessData.monthlySavings}` : ""}
+${businessData.monthlySavings ? `ESTIMATED MONTHLY SAVINGS: ${businessData.monthlySavings} dollars` : ""}
 ${businessData.currentProcessor ? `CURRENT PROCESSOR: ${businessData.currentProcessor}` : ""}
 
-GOAL: Walk them through the savings, answer objections, move toward signing.
+FLOW:
+1. Remind them who you are and that they sent their statement
+2. Share the savings finding: "Based on your current rates, we found you could save around [savings] dollars per month"
+3. Explain the switch: "We handle all the paperwork, your processing never goes down, usually takes about a week"
+4. Handle objections
+5. Close: "Want me to send over the application so we can lock in those savings?"
 
-KEY POINTS TO HIT:
-- Confirm the savings figure you identified
-- Address the switching process (we handle the paperwork)
-- Confirm no interruption to their business
-- If they're on Clover: reassure them Beacon supports Clover natively
-- Close: "Want me to send over the application so we can get you locked in?"`;
+OBJECTION HANDLING:
+- "How do I know this is real?": "Totally fair — we can do a side-by-side comparison in writing before you commit to anything."
+- "I'm in a contract": "How long is left on it? Sometimes the savings are worth the cancellation fee, sometimes they're not — let's run the math."
+- "I need to think about it": "Of course — what's the main thing holding you back? I want to make sure I answer any questions."`;
   }
 
   return base;
