@@ -29,9 +29,19 @@ export function registerRetellLLM(fastify) {
         return;
       }
 
-      // Call started — log only, response handled by response_required
+      // Call started — send opener immediately so Alex speaks first
       if (msg.interaction_type === "call_started") {
         console.log("[Retell] Call started:", msg.call?.call_id);
+        const ownerName = msg.call?.metadata?.businessData?.ownerName || "";
+        const opener = ownerName
+          ? `Hey, is this ${ownerName}?`
+          : `Hey, how's it going?`;
+        socket.send(JSON.stringify({
+          response_type: "response",
+          response_id: msg.response_id,
+          content: opener,
+          content_complete: true,
+        }));
         return;
       }
 
@@ -70,10 +80,16 @@ async function handleLLMResponse(socket, msg) {
   const systemPrompt = buildSystemPrompt(callType, businessData);
   const messages = convertTranscript(transcript);
 
+  // If transcript is empty and this isn't a reminder, opener was already sent on call_started — skip
+  if (messages.length === 0 && msg.interaction_type !== "reminder_required") {
+    console.log("[Retell] Empty transcript on response_required — opener already sent, skipping");
+    return;
+  }
+
   if (msg.interaction_type === "reminder_required") {
     messages.push({
       role: "user",
-      content: "[Silence on the line. Continue naturally — ask a gentle follow-up or briefly reiterate your last point in one sentence.]",
+      content: "[Silence on the line. Say something brief to keep the conversation going.]",
     });
   }
 
@@ -99,8 +115,8 @@ async function handleLLMResponse(socket, msg) {
         buffer += text;
         pending += text;
 
-        // Flush at sentence/clause boundaries so TTS gets complete phrases
-        if (/[.!?,;]/.test(text)) {
+        // Flush at sentence endings only — avoids choppy TTS on commas
+        if (/[.!?]/.test(text)) {
           socket.send(JSON.stringify({
             response_type: "response",
             response_id: msg.response_id,
