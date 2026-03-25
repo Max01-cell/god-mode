@@ -3,8 +3,24 @@
 // Retell connects here, we call Claude API and stream responses back
 
 import Anthropic from "@anthropic-ai/sdk";
+import { sendUploadLinkEmail } from "./lib/email.js";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+const TOOLS = [
+  {
+    name: "send_upload_link",
+    description: "Call this as soon as you have the prospect's email address. Sends them a link to upload their processing statement.",
+    input_schema: {
+      type: "object",
+      properties: {
+        email:     { type: "string", description: "Prospect's email address" },
+        ownerName: { type: "string", description: "Prospect's name if known" },
+      },
+      required: ["email"],
+    },
+  },
+];
 
 export function registerRetellLLM(fastify) {
   // Register on base path AND with callId param — Retell appends call ID to URL
@@ -96,56 +112,7 @@ async function handleLLMResponse(socket, msg) {
   console.log(`[Retell] Calling Claude with ${messages.length} messages`);
 
   try {
-    const stream = await anthropic.messages.stream({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 150,
-      system: systemPrompt,
-      messages: messages.length > 0 ? messages : [{ role: "user", content: "Hello?" }],
-    });
-
-    let buffer = "";
-    let pending = "";
-
-    for await (const chunk of stream) {
-      if (
-        chunk.type === "content_block_delta" &&
-        chunk.delta?.type === "text_delta"
-      ) {
-        const text = chunk.delta.text;
-        buffer += text;
-        pending += text;
-
-        // Flush at sentence endings only — avoids choppy TTS on commas
-        if (/[.!?]/.test(text)) {
-          socket.send(JSON.stringify({
-            response_type: "response",
-            response_id: msg.response_id,
-            content: pending,
-            content_complete: false,
-          }));
-          pending = "";
-        }
-      }
-    }
-
-    // Flush any remaining text
-    if (pending) {
-      socket.send(JSON.stringify({
-        response_type: "response",
-        response_id: msg.response_id,
-        content: pending,
-        content_complete: false,
-      }));
-    }
-
-    socket.send(JSON.stringify({
-      response_type: "response",
-      response_id: msg.response_id,
-      content: "",
-      content_complete: true,
-    }));
-
-    console.log(`[Retell] Response sent (${buffer.length} chars): ${buffer.slice(0, 80)}...`);
+    await streamWithTools(socket, msg, systemPrompt, messages, businessData);
   } catch (err) {
     console.error("[Retell] Claude API error:", err);
     socket.send(JSON.stringify({
@@ -155,6 +122,110 @@ async function handleLLMResponse(socket, msg) {
       content_complete: true,
     }));
   }
+}
+
+// ─── Streaming with tool use support ─────────────────────────────────────────
+async function streamWithTools(socket, msg, systemPrompt, messages, businessData) {
+  const stream = await anthropic.messages.stream({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 200,
+    system: systemPrompt,
+    tools: TOOLS,
+    messages: messages.length > 0 ? messages : [{ role: "user", content: "Hello?" }],
+  });
+
+  let buffer = "";
+  let pending = "";
+  let toolUse = null; // accumulates a tool_use block if Claude calls a tool
+
+  for await (const chunk of stream) {
+    // Text streaming
+    if (chunk.type === "content_block_delta" && chunk.delta?.type === "text_delta") {
+      const text = chunk.delta.text;
+      buffer += text;
+      pending += text;
+
+      if (/[.!?]/.test(text)) {
+        socket.send(JSON.stringify({
+          response_type: "response",
+          response_id: msg.response_id,
+          content: pending,
+          content_complete: false,
+        }));
+        pending = "";
+      }
+    }
+
+    // Tool use — accumulate the block
+    if (chunk.type === "content_block_start" && chunk.content_block?.type === "tool_use") {
+      toolUse = { id: chunk.content_block.id, name: chunk.content_block.name, inputRaw: "" };
+    }
+    if (chunk.type === "content_block_delta" && chunk.delta?.type === "input_json_delta" && toolUse) {
+      toolUse.inputRaw += chunk.delta.partial_json;
+    }
+    if (chunk.type === "content_block_stop" && toolUse) {
+      // Tool block complete — execute it
+      const input = JSON.parse(toolUse.inputRaw || "{}");
+      console.log(`[Retell] Tool call: ${toolUse.name}`, input);
+
+      let toolResult = "";
+      if (toolUse.name === "send_upload_link") {
+        try {
+          await sendUploadLinkEmail({ to: input.email, ownerName: input.ownerName || businessData.ownerName });
+          toolResult = `Upload link sent to ${input.email}.`;
+          console.log(`[Retell] Upload link emailed to ${input.email}`);
+        } catch (e) {
+          toolResult = "Failed to send the link — try again.";
+          console.error("[Retell] sendUploadLinkEmail error:", e.message);
+        }
+      }
+
+      // Continue conversation with tool result
+      const followUp = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 100,
+        system: systemPrompt,
+        tools: TOOLS,
+        messages: [
+          ...(messages.length > 0 ? messages : [{ role: "user", content: "Hello?" }]),
+          { role: "assistant", content: [{ type: "tool_use", id: toolUse.id, name: toolUse.name, input }] },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: toolUse.id, content: toolResult }] },
+        ],
+      });
+
+      const followUpText = followUp.content.find(b => b.type === "text")?.text || "";
+      if (followUpText) {
+        buffer += followUpText;
+        socket.send(JSON.stringify({
+          response_type: "response",
+          response_id: msg.response_id,
+          content: followUpText,
+          content_complete: false,
+        }));
+      }
+
+      toolUse = null;
+    }
+  }
+
+  // Flush remaining text
+  if (pending) {
+    socket.send(JSON.stringify({
+      response_type: "response",
+      response_id: msg.response_id,
+      content: pending,
+      content_complete: false,
+    }));
+  }
+
+  socket.send(JSON.stringify({
+    response_type: "response",
+    response_id: msg.response_id,
+    content: "",
+    content_complete: true,
+  }));
+
+  console.log(`[Retell] Response sent (${buffer.length} chars): ${buffer.slice(0, 80)}...`);
 }
 
 // ─── Transcript converter ─────────────────────────────────────────────────────
@@ -192,7 +263,7 @@ function buildSystemPrompt(callType, businessData) {
   }
 
   const coldCallContext = callType === "cold_call" ? `
-You're making a cold call${businessData.businessName ? ` to ${businessData.businessName}` : ""}${businessData.ownerName ? ` — you're trying to reach ${businessData.ownerName}` : ""}. If someone else answers, just ask for the owner or whoever handles the finances. Don't pitch to employees. If the owner isn't available, get a good callback time and leave your name. Once you're with the owner, find out roughly how much they do in card volume per month. If it's over 25 thousand, ask them to email their processing statement to alex at 01 payments dot com. If it's under 10 thousand, be straight with them — it probably won't be worth it at that volume, but keep you in mind.${posNote ? " " + posNote : ""}` : "";
+You're making a cold call${businessData.businessName ? ` to ${businessData.businessName}` : ""}${businessData.ownerName ? ` — you're trying to reach ${businessData.ownerName}` : ""}. If someone else answers, just ask for the owner or whoever handles the finances. Don't pitch to employees. If the owner isn't available, get a good callback time and leave your name. Once you're with the owner, find out roughly how much they do in card volume per month. If it's over 25 thousand, ask for their email so you can send them a link to upload their statement — then immediately call the send_upload_link tool with their email. If it's under 10 thousand, be straight with them — it probably won't be worth it at that volume, but keep you in mind.${posNote ? " " + posNote : ""}` : "";
 
   const followUpContext = callType === "follow_up" ? `
 You're following up${businessData.businessName ? ` with ${businessData.businessName}` : ""}${businessData.ownerName ? ` — ${businessData.ownerName}` : ""} who already sent in their processing statement.${businessData.monthlySavings ? ` Your analysis found they could save around ${businessData.monthlySavings} dollars per month.` : ""}${businessData.currentProcessor ? ` They're currently with ${businessData.currentProcessor}.` : ""} Remind them who you are, share what you found, explain that zero one handles all the paperwork and their processing never goes down during the switch. Close by asking if they want you to send the application over.` : "";
