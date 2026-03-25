@@ -59,7 +59,7 @@ export function registerRetellLLM(fastify) {
       }
     });
 
-    socket.on("close", () => console.log("[Retell] Connection closed"));
+    socket.on("close", (code, reason) => console.log("[Retell] Connection closed — code:", code, "reason:", reason?.toString()));
     socket.on("error", (err) => console.error("[Retell] WebSocket error:", err));
   });
 }
