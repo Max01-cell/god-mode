@@ -19,7 +19,7 @@ const PING_PONG = "ping_pong";
 //   registerRetellLLM(fastify)
 
 export function registerRetellLLM(fastify) {
-  fastify.get("/retell-llm", { websocket: true }, (socket, req) => {
+  fastify.get("/retell-llm/*", { websocket: true }, (socket, req) => {
     console.log("[Retell] Custom LLM connection opened");
 
     socket.on("message", async (raw) => {
