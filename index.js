@@ -13,7 +13,7 @@ import { mkdir, writeFile, readFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname, join, extname } from 'path';
 import alawmulaw from 'alawmulaw';
-import { createLead, updateLead, leads } from './lib/leads-store.js';
+import { createLead, updateLead, leads, LEAD_STATUSES } from './lib/leads-store.js';
 import { analyzeStatement } from './lib/analyze-statement.js';
 import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport, sendOwnerAnalysisReport, sendApplicationNotification, sendApplicationConfirmation, sendUploadLinkEmail, sendColdCallLeadNotification } from './lib/email.js';
 
@@ -284,39 +284,80 @@ fastify.get('/uploads/:filename', async (req, reply) => {
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
+const STATUS_COLORS = {
+  link_sent:              '#8e44ad',
+  statement_received:     '#2980b9',
+  report_sent:            '#16a085',
+  application_received:   '#d35400',
+  submitted_to_processor: '#f39c12',
+  approved:               '#27ae60',
+  live:                   '#1abc9c',
+};
+
+const STATUS_LABELS = {
+  link_sent:              'Link Sent',
+  statement_received:     'Statement Received',
+  report_sent:            'Report Sent',
+  application_received:   'Application Received',
+  submitted_to_processor: 'Submitted to Processor',
+  approved:               'Approved',
+  live:                   'Live',
+};
+
 fastify.get('/dashboard', async (req, reply) => {
   if (req.query.key !== DASHBOARD_KEY) return reply.status(401).send('Unauthorized');
 
   const fmt = (n) => n != null ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` : '—';
   const allLeads = [...leads.values()].sort((a, b) => new Date(b.submittedAt) - new Date(a.submittedAt));
 
+  const statusOptions = LEAD_STATUSES.map(s =>
+    `<option value="${s}">${STATUS_LABELS[s] ?? s}</option>`
+  ).join('');
+
   const rows = allLeads.map(lead => {
     const sd = lead.savingsData;
     const fileLink = lead.uploadFilename
       ? `<a href="/uploads/${lead.uploadFilename}?key=${DASHBOARD_KEY}" target="_blank">View File</a>`
       : '—';
-    const statusBadge = {
-      pending:  '<span style="color:#f39c12;">⏳ Pending</span>',
-      complete: '<span style="color:#27ae60;">✓ Complete</span>',
-      failed:   '<span style="color:#e74c3c;">✗ Failed</span>',
-    }[lead.analysisStatus] ?? lead.analysisStatus;
 
-    const savings = sd ? `
-      <small>
-        ${sd.current_processor ?? '—'} →
-        ${fmt(sd.total_fees)}/mo current &nbsp;|&nbsp;
-        Save ${fmt(sd.monthly_savings)}/mo &nbsp;|&nbsp;
-        ${fmt(sd.annual_savings)}/yr
-      </small>` : (lead.analysisError ? `<small style="color:#e74c3c;">${lead.analysisError}</small>` : '');
+    const analysisBadge = {
+      pending:  '<span style="color:#f39c12;font-size:11px;">⏳ analyzing</span>',
+      complete: '<span style="color:#27ae60;font-size:11px;">✓ done</span>',
+      failed:   '<span style="color:#e74c3c;font-size:11px;">✗ failed</span>',
+    }[lead.analysisStatus] ?? '';
 
-    return `<tr>
-      <td>${new Date(lead.submittedAt).toLocaleString()}</td>
-      <td>${lead.fullName}</td>
+    const savingsLine = sd?.monthly_savings != null
+      ? `<small style="color:#27ae60;">Save ${fmt(sd.monthly_savings)}/mo · ${sd.recommendation?.recommended ?? ''}</small>`
+      : lead.analysisError ? `<small style="color:#e74c3c;">${lead.analysisError}</small>` : '';
+
+    const currentStatus = lead.status ?? '';
+    const statusColor   = STATUS_COLORS[currentStatus] ?? '#aaa';
+    const statusLabel   = STATUS_LABELS[currentStatus] ?? (currentStatus || 'Unknown');
+
+    const selectOpts = LEAD_STATUSES.map(s =>
+      `<option value="${s}"${s === currentStatus ? ' selected' : ''}>${STATUS_LABELS[s]}</option>`
+    ).join('');
+
+    return `<tr id="row-${lead.id}">
+      <td style="white-space:nowrap;font-size:12px;color:#888;">${new Date(lead.submittedAt).toLocaleString()}</td>
+      <td><strong>${lead.fullName}</strong><br><span style="font-size:11px;color:#888;">${lead.source ?? ''}</span></td>
       <td>${lead.businessName}</td>
-      <td>${lead.phone}</td>
-      <td><a href="mailto:${lead.email}">${lead.email}</a></td>
-      <td>${fileLink}</td>
-      <td>${statusBadge}${savings}</td>
+      <td style="white-space:nowrap;">${lead.phone || '—'}</td>
+      <td><a href="mailto:${lead.email}" style="font-size:13px;">${lead.email}</a></td>
+      <td style="font-size:12px;">
+        ${fileLink}
+        ${analysisBadge}
+        ${savingsLine}
+        ${sd?.pos_system ? `<small style="color:#888;">POS: ${sd.pos_system}</small>` : lead.posSystem ? `<small style="color:#888;">POS: ${lead.posSystem}</small>` : ''}
+        ${sd?.deal_difficulty ? `<small style="color:${STATUS_COLORS[sd.deal_difficulty] ?? '#888'};">Difficulty: ${sd.deal_difficulty}</small>` : ''}
+      </td>
+      <td>
+        <span class="status-badge" style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;color:#fff;background:${statusColor};margin-bottom:6px;">${statusLabel}</span><br>
+        <select class="status-select" data-lead="${lead.id}" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;margin-right:4px;">
+          ${selectOpts}
+        </select>
+        <button onclick="saveStatus('${lead.id}', this)" style="font-size:12px;padding:3px 10px;background:#0a0a0a;color:#fff;border:none;border-radius:4px;cursor:pointer;">Save</button>
+      </td>
     </tr>`;
   }).join('');
 
@@ -324,30 +365,87 @@ fastify.get('/dashboard', async (req, reply) => {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>01 Payments — Lead Dashboard</title>
+  <title>01 Payments — Dashboard</title>
   <style>
+    * { box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f6f7fb; color: #1a1a1a; }
     h1 { font-size: 20px; margin: 0 0 4px; }
-    p.sub { color: #888; font-size: 13px; margin: 0 0 24px; }
+    .sub { color: #888; font-size: 13px; margin: 0 0 20px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+    .legend span { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; color: #fff; }
     table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 6px rgba(0,0,0,.08); font-size: 13px; }
-    th { padding: 10px 14px; text-align: left; background: #f9f9f9; color: #999; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #f0f0f0; }
-    td { padding: 12px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: top; }
+    th { padding: 10px 14px; text-align: left; background: #f9f9f9; color: #999; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #f0f0f0; white-space: nowrap; }
+    td { padding: 10px 14px; border-bottom: 1px solid #f5f5f5; vertical-align: top; }
     tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
     a { color: #0a0a0a; }
-    small { display: block; margin-top: 4px; color: #888; }
+    small { display: block; margin-top: 3px; }
+    .toast { position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    .toast.show { opacity: 1; }
   </style>
 </head>
 <body>
-  <h1>01 Payments — Lead Dashboard</h1>
+  <h1>01 Payments — Dashboard</h1>
   <p class="sub">${allLeads.length} lead${allLeads.length !== 1 ? 's' : ''} total</p>
+
+  <div class="legend">
+    ${LEAD_STATUSES.map(s => `<span style="background:${STATUS_COLORS[s] ?? '#aaa'};">${STATUS_LABELS[s]}</span>`).join('')}
+  </div>
+
   <table>
     <thead>
       <tr>
-        <th>Submitted</th><th>Name</th><th>Business</th><th>Phone</th><th>Email</th><th>Statement</th><th>Analysis</th>
+        <th>Submitted</th>
+        <th>Name</th>
+        <th>Business</th>
+        <th>Phone</th>
+        <th>Email</th>
+        <th>Statement / Analysis</th>
+        <th>Status</th>
       </tr>
     </thead>
     <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#aaa;padding:40px;">No leads yet</td></tr>'}</tbody>
   </table>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const KEY = '${DASHBOARD_KEY}';
+    const STATUS_COLORS = ${JSON.stringify(STATUS_COLORS)};
+    const STATUS_LABELS = ${JSON.stringify(STATUS_LABELS)};
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    async function saveStatus(leadId, btn) {
+      const row = document.getElementById('row-' + leadId);
+      const select = row.querySelector('.status-select');
+      const status = select.value;
+      btn.disabled = true;
+      btn.textContent = '...';
+      try {
+        const res = await fetch('/leads/' + leadId + '/status?key=' + KEY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const badge = row.querySelector('.status-badge');
+        badge.textContent = STATUS_LABELS[status] ?? status;
+        badge.style.background = STATUS_COLORS[status] ?? '#aaa';
+        showToast('Status updated → ' + (STATUS_LABELS[status] ?? status));
+      } catch (e) {
+        showToast('Error: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      }
+    }
+  </script>
 </body>
 </html>`;
 
@@ -427,6 +525,7 @@ fastify.post('/submit-statement', async (req, reply) => {
 
       // Send savings report to prospect (best-for-merchant only)
       await sendSavingsReport({ ...lead, uploadFilename }, savingsData);
+      updateLead(lead.id, { status: 'report_sent' });
       fastify.log.info('[email] savings report sent to %s', email);
 
       // Send internal analysis report to owner (all processor options)
@@ -443,8 +542,24 @@ fastify.post('/submit-statement', async (req, reply) => {
     }
   });
 
+  // Mark status as statement_received now that file is saved
+  updateLead(lead.id, { status: 'statement_received' });
+
   // 4. Return immediately — analysis runs in background
   reply.send({ ok: true, leadId: lead.id, message: 'Statement received. Your savings report will be emailed to you shortly.' });
+});
+
+// ── Lead status update ────────────────────────────────────────────────────────
+
+fastify.post('/leads/:leadId/status', async (req, reply) => {
+  if (req.query.key !== DASHBOARD_KEY) return reply.status(401).send({ error: 'Unauthorized' });
+  const { status } = req.body ?? {};
+  if (!LEAD_STATUSES.includes(status)) {
+    return reply.status(400).send({ error: `Invalid status. Must be one of: ${LEAD_STATUSES.join(', ')}` });
+  }
+  const lead = updateLead(req.params.leadId, { status });
+  if (!lead) return reply.status(404).send({ error: 'Lead not found' });
+  reply.send({ ok: true, leadId: lead.id, status: lead.status });
 });
 
 // ── Merchant application ───────────────────────────────────────────────────────
@@ -467,16 +582,24 @@ fastify.post('/submit-application', async (req, reply) => {
 
   let lead;
   if (existingLead) {
-    lead = updateLead(existingLead.id, { applicationData: body, applicationSubmittedAt: new Date().toISOString() });
+    lead = updateLead(existingLead.id, {
+      applicationData: body,
+      applicationSubmittedAt: new Date().toISOString(),
+      status: 'application_received',
+      // Fill in any missing contact info from the application
+      fullName:     existingLead.fullName     || fullName,
+      businessName: existingLead.businessName || businessName,
+      phone:        existingLead.phone        || phone,
+    });
     fastify.log.info('[submit-application] linked to existing lead %s — %s', lead.id, businessName);
   } else {
-    lead = createLead({ fullName, businessName, phone: phone ?? '', email, source: 'application' });
+    lead = createLead({ fullName, businessName, phone: phone ?? '', email, source: 'application', status: 'application_received' });
     updateLead(lead.id, { applicationData: body, applicationSubmittedAt: new Date().toISOString() });
     fastify.log.info('[submit-application] new lead %s — %s', lead.id, businessName);
   }
 
   // Fire both emails (non-blocking)
-  sendApplicationNotification({ ...body, fullName, businessName, email }).catch(err =>
+  sendApplicationNotification({ ...body, fullName, businessName, email }, lead).catch(err =>
     fastify.log.error('[email] application notification failed: %s', err.message)
   );
   sendApplicationConfirmation({ fullName, businessName, email }).catch(err =>
