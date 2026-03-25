@@ -8,7 +8,8 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export function registerRetellLLM(fastify) {
   // Register on base path AND with callId param — Retell appends call ID to URL
-  const handler = (socket, req) => {
+  const handler = (connection, req) => {
+    const socket = connection.socket;
     console.log("[Retell] Custom LLM connection opened — url:", req.url);
 
     socket.on("message", async (raw) => {
