@@ -296,7 +296,7 @@ const processors = {
     contract_term_years: 3,
     non_exclusive: true,
     residuals_survive_termination: true,
-    residual_minimum_threshold: 1000,
+    residual_minimum_threshold: 1000,   // $1,000 CUMULATIVE total (not monthly) — Beacon can stop paying once this is exceeded if terminated
     non_solicitation_penalty: "39x average monthly gross fees",
     can_sell_book: true,
     right_of_last_refusal: true,
@@ -313,6 +313,63 @@ const processors = {
       "Alternative platform (TSYS/Payarc) available for different merchant types",
     ],
   },
+};
+
+export const posCompatibility = {
+  kurv: {
+    supported_terminals: ['pax', 'dejavoo', 'verifone', 'ingenico'],
+    proprietary_pos: 'MaxxPay (Mini, Pro, Premier)',
+    restaurant_pos: 'Total Touch ($59.95/month)',
+    supports_clover: false,
+    supports_reprogram: true,
+    free_terminal_available: true,
+    free_pos_available: true,
+    notes: 'MaxxPay line competes with Clover. Total Touch for restaurants. Can reprogram most standalone terminals.',
+  },
+  epi: {
+    supported_terminals: ['pax', 'dejavoo', 'verifone', 'ingenico'],
+    proprietary_pos: 'Exatouch',
+    restaurant_pos: 'Exatouch (free placement on Option C)',
+    supports_clover: false,
+    supports_reprogram: true,
+    free_terminal_available: true,
+    free_pos_available: true,
+    notes: 'Exatouch is their in-house POS. Free placement available on Option C at 50% split. Can reprogram most standalone terminals.',
+  },
+  beacon: {
+    supported_terminals: ['pax', 'dejavoo', 'verifone', 'ingenico', 'clover'],
+    proprietary_pos: null,
+    restaurant_pos: 'Clover (through Flex Sell program)',
+    supports_clover: true,
+    supports_reprogram: true,
+    free_terminal_available: true,
+    free_pos_available: true,
+    clover_platform_fee: 5.00,
+    flex_sell_split: 0.50,
+    flex_sell_bonus: false,
+    notes: 'Only processor that natively supports Clover. Flex Sell program provides free Clover at 50% split with no bonus. Can also reprogram standalone terminals.',
+  },
+};
+
+export const posLockStatus = {
+  clover:           { locked: false, compatible_processors: ['beacon'],              notes: 'Clover hardware works with Beacon via CardConnect. Kurv and EPI cannot process through Clover.' },
+  square:           { locked: true,  compatible_processors: [],                      notes: 'Locked to Square processing. Must switch hardware entirely.' },
+  toast:            { locked: true,  compatible_processors: [],                      notes: 'Locked to Toast processing. Must switch hardware entirely.' },
+  pax:              { locked: false, compatible_processors: ['kurv', 'epi', 'beacon'], notes: 'Can be reprogrammed to any processor. No hardware change needed.' },
+  dejavoo:          { locked: false, compatible_processors: ['kurv', 'epi', 'beacon'], notes: 'Can be reprogrammed to any processor. No hardware change needed.' },
+  verifone:         { locked: false, compatible_processors: ['kurv', 'epi', 'beacon'], notes: 'Can be reprogrammed to any processor. No hardware change needed.' },
+  ingenico:         { locked: false, compatible_processors: ['kurv', 'epi', 'beacon'], notes: 'Can be reprogrammed to any processor. No hardware change needed.' },
+  heartland_genius: { locked: true,  compatible_processors: [],                      notes: 'Locked to Global Payments/Heartland processing. Must switch hardware entirely or negotiate with Heartland directly.' },
+  spoton:           { locked: true,  compatible_processors: [],                      notes: 'Locked to SpotOn processing. Must switch hardware entirely.' },
+  lightspeed:       { locked: true,  compatible_processors: [],                      notes: 'Locked to Lightspeed processing. Must switch hardware entirely.' },
+  revel:            { locked: false, compatible_processors: ['beacon'],              notes: 'Semi-open system. May work with some processors. Verify before committing.' },
+  shopify_pos:      { locked: true,  compatible_processors: [],                      notes: 'Locked to Shopify Payments. Must switch hardware entirely.' },
+  stripe_terminal:  { locked: true,  compatible_processors: [],                      notes: 'Locked to Stripe processing. Must switch hardware entirely.' },
+  ncr_aloha:        { locked: true,  compatible_processors: [],                      notes: 'Locked to NCR/Aloha processing. Complex migration required.' },
+  micros_oracle:    { locked: true,  compatible_processors: [],                      notes: 'Locked to Oracle processing. Complex migration required.' },
+  standalone_unknown: { locked: false, compatible_processors: ['kurv', 'epi', 'beacon'], notes: 'Most standalone terminals can be reprogrammed. Verify brand before committing.' },
+  online_only:      { locked: false, compatible_processors: ['kurv', 'epi', 'beacon'], notes: 'E-commerce merchant. All processors support payment gateway integration.' },
+  other:            { locked: false, compatible_processors: [],                      notes: 'Unknown POS system. Verify compatibility before recommending a processor.' },
 };
 
 export default processors;
