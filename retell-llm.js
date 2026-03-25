@@ -29,23 +29,9 @@ export function registerRetellLLM(fastify) {
         return;
       }
 
-      // Call started — Alex speaks first
+      // Call started — log only, response handled by response_required
       if (msg.interaction_type === "call_started") {
         console.log("[Retell] Call started:", msg.call?.call_id);
-        const metadata = msg.call?.metadata || {};
-        const businessData = metadata.businessData || {};
-        const ownerName = businessData.ownerName || "";
-
-        const opener = ownerName
-          ? `Hi, is this ${ownerName}? This is Alex calling from zero one payments — do you have about sixty seconds?`
-          : `Hi there, this is Alex calling from zero one payments — do you have about sixty seconds?`;
-
-        socket.send(JSON.stringify({
-          response_type: "response",
-          response_id: msg.response_id,
-          content: opener,
-          content_complete: true,
-        }));
         return;
       }
 
