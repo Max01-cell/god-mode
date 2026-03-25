@@ -65,6 +65,7 @@ export function registerRetellLLM(fastify) {
 
 // ─── Core LLM handler ─────────────────────────────────────────────────────────
 async function handleLLMResponse(socket, msg) {
+  console.log("LLM handler called, interaction type: " + msg.interaction_type);
   const { transcript, call } = msg;
   const metadata = call?.metadata || {};
 
@@ -89,6 +90,7 @@ async function handleLLMResponse(socket, msg) {
   }
 
   try {
+    console.log("Calling Claude API with " + messages.length + " messages");
     const stream = await anthropic.messages.stream({
       model: "claude-opus-4-5",
       max_tokens: 300,         // Keep responses tight for phone conversation
@@ -128,7 +130,7 @@ async function handleLLMResponse(socket, msg) {
 
     console.log(`[Retell] Response sent (${buffer.length} chars)`);
   } catch (err) {
-    console.error("[Retell] Claude API error:", err.message);
+    console.error("[Retell] Claude API error:", err);
 
     // Graceful fallback — agent stays in character
     socket.send(
