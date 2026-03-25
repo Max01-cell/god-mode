@@ -15,7 +15,7 @@ import { dirname, join, extname } from 'path';
 import alawmulaw from 'alawmulaw';
 import { createLead, updateLead, leads } from './lib/leads-store.js';
 import { analyzeStatement } from './lib/analyze-statement.js';
-import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport, sendOwnerAnalysisReport, sendApplicationNotification, sendApplicationConfirmation } from './lib/email.js';
+import { sendOwnerNotification, sendOwnerAnalysisFailure, sendSavingsReport, sendOwnerAnalysisReport, sendApplicationNotification, sendApplicationConfirmation, sendUploadLinkEmail, sendColdCallLeadNotification } from './lib/email.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -511,6 +511,8 @@ fastify.register(async (app) => {
     let responseAudioStartMs  = null; // when current response audio started, for truncation
     let bgCursor           = Math.floor(Math.random() * bgRaw.length); // random start so each call sounds different
     let silenceTimer     = null; // fires "hello?" after long mid-conversation silence
+    let currentBusinessData  = null; // business data for this call, captured in maybeSendSessionUpdate
+    const pendingFunctionCalls = new Map(); // call_id → function name, for routing tool calls
 
     const SILENCE_CHECK_MS = 30000; // 30s of no human speech → check in
 
@@ -547,6 +549,7 @@ fastify.register(async (app) => {
       }
 
       const { callType = 'cold', businessData = null, savingsData = null } = callEntry ?? {};
+      currentBusinessData = businessData;
       console.log('[session] resolved callType:', callType);
 
       let instructions;
@@ -587,6 +590,25 @@ fastify.register(async (app) => {
               name: 'hang_up_call',
               description: 'End the phone call. Call this when the conversation is complete — after a goodbye, after the prospect says not interested, or after getting their email.',
               parameters: { type: 'object', properties: {}, required: [] },
+            },
+            {
+              type: 'function',
+              name: 'send_upload_link',
+              description: "Send the prospect an email with a link to upload their processing statement for a free savings analysis. Call this as soon as you have captured the prospect's email address. Say 'Perfect, I'm sending that over to you right now' before calling this.",
+              parameters: {
+                type: 'object',
+                properties: {
+                  email: {
+                    type: 'string',
+                    description: "The prospect's email address",
+                  },
+                  owner_name: {
+                    type: 'string',
+                    description: "The prospect's name if known",
+                  },
+                },
+                required: ['email'],
+              },
             },
           ],
           tool_choice: 'auto',
@@ -654,9 +676,13 @@ fastify.register(async (app) => {
       }
 
       if (event.type === 'response.output_item.added') {
-        if (event.item?.type === 'function_call' && event.item?.name === 'hang_up_call') {
-          fastify.log.info('[OpenAI] hang_up_call detected — will hang up after goodbye audio plays');
-          hangUpPending = true;
+        if (event.item?.type === 'function_call') {
+          // Track all function calls by call_id so we can route them when args arrive
+          pendingFunctionCalls.set(event.item.call_id, event.item.name);
+          if (event.item.name === 'hang_up_call') {
+            fastify.log.info('[OpenAI] hang_up_call detected — will hang up after goodbye audio plays');
+            hangUpPending = true;
+          }
         } else if (event.item?.type === 'message') {
           // Track item id so we can truncate it if the caller interrupts
           currentResponseItemId = event.item.id;
@@ -668,6 +694,58 @@ fastify.register(async (app) => {
       if (event.type === 'response.done' && event.response?.usage) {
         const { input_tokens, output_tokens, total_tokens } = event.response.usage;
         console.log(`[tokens] input=${input_tokens} output=${output_tokens} total=${total_tokens}`);
+        return;
+      }
+
+      if (event.type === 'response.function_call_arguments.done') {
+        const fnName = pendingFunctionCalls.get(event.call_id);
+        pendingFunctionCalls.delete(event.call_id);
+
+        if (fnName === 'send_upload_link') {
+          let args = {};
+          try { args = JSON.parse(event.arguments || '{}'); } catch { /* ignore */ }
+
+          const email      = args.email;
+          const ownerName  = args.owner_name ?? currentBusinessData?.owner_name ?? null;
+          const businessName = currentBusinessData?.business_name ?? null;
+          const callLog    = callLogs.find(l => l.callSid === callSid);
+          const phone      = callLog?.to ?? null;
+
+          fastify.log.info('[send_upload_link] email=%s owner=%s business=%s', email, ownerName, businessName);
+
+          // Fire emails and save lead — non-blocking
+          if (email) {
+            // Save lead to database
+            const lead = createLead({
+              fullName:     ownerName ?? 'Unknown',
+              businessName: businessName ?? 'Unknown',
+              phone:        phone ?? '',
+              email,
+              source:       'cold_call',
+            });
+            updateLead(lead.id, { status: 'link_sent', capturedAt: new Date().toISOString() });
+
+            sendUploadLinkEmail({ to: email, ownerName }).catch(err =>
+              fastify.log.error('[email] upload link email failed: %s', err.message)
+            );
+            sendColdCallLeadNotification({ businessName, email, ownerName, phone }).catch(err =>
+              fastify.log.error('[email] cold call lead notification failed: %s', err.message)
+            );
+          }
+
+          // Send tool result back to OpenAI so agent can continue
+          if (openAiWs?.readyState === WebSocket.OPEN) {
+            openAiWs.send(JSON.stringify({
+              type: 'conversation.item.create',
+              item: {
+                type:    'function_call_output',
+                call_id: event.call_id,
+                output:  JSON.stringify({ success: true, message: 'Upload link email sent successfully.' }),
+              },
+            }));
+            openAiWs.send(JSON.stringify({ type: 'response.create' }));
+          }
+        }
         return;
       }
 
