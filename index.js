@@ -385,8 +385,10 @@ fastify.post('/submit-statement', async (req, reply) => {
   }
 
   // Accept both naming conventions (server-style and form-style)
-  const fullName     = fields.fullName     ?? fields.name;
-  const businessName = fields.businessName ?? fields.business_name;
+  const fullName        = fields.fullName        ?? fields.name;
+  const businessName    = fields.businessName    ?? fields.business_name;
+  const posSystem       = fields.posSystem       ?? fields.pos_system       ?? null;
+  const bestTimeToCall  = fields.bestTimeToCall  ?? fields.best_time_to_call ?? null;
   const { phone, email } = fields;
 
   if (!fullName || !businessName || !phone || !email) {
@@ -406,7 +408,7 @@ fastify.post('/submit-statement', async (req, reply) => {
   const lead = createLead({ fullName, businessName, phone, email, fileName, fileSize: fileBuffer.length, fileType });
   const uploadFilename = `${lead.id}-${safeFileName}`;
   await writeFile(join(UPLOADS_DIR, uploadFilename), fileBuffer);
-  updateLead(lead.id, { uploadFilename });
+  updateLead(lead.id, { uploadFilename, posSystem, bestTimeToCall });
   fastify.log.info('[submit-statement] new lead %s — %s (%s) — saved as %s', lead.id, businessName, email, uploadFilename);
 
   // 2. Notify owner immediately (don't await — don't block the response)
@@ -418,7 +420,7 @@ fastify.post('/submit-statement', async (req, reply) => {
   setImmediate(async () => {
     try {
       fastify.log.info('[analysis] starting for lead %s', lead.id);
-      const savingsData = await analyzeStatement(fileBuffer, fileType);
+      const savingsData = await analyzeStatement(fileBuffer, fileType, { pos_system: posSystem, best_time_to_call: bestTimeToCall });
 
       const updatedLead = updateLead(lead.id, { analysisStatus: 'complete', savingsData });
       fastify.log.info('[analysis] complete for lead %s — monthly savings: %s', lead.id, savingsData.monthly_savings);
